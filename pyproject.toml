@@ -16,7 +16,7 @@ classifiers = [
 dependencies = [
     "retry==0.9.2",
     "pydantic[email]==1.9.2",
-    "trivialscan==0.3.4",
+    "trivialscan==0.3.6",
 ]
 
 [tool.coverage.run]

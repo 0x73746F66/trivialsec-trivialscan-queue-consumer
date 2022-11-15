@@ -87,6 +87,8 @@ def handler(event, context):
         handle.write_text(json.dumps(data, indent=4, default=str), "utf8")
 
     certificates = {}
+    if "certificates" in data:
+        del data["certificates"]
     for certdata in data["tls"].get("certificates", []):
         cert = internals.Certificate(**certdata)  # type: ignore
         internals.logger.info(f"Storing certificate data {cert.sha1_fingerprint}")
@@ -101,6 +103,8 @@ def handler(event, context):
             )
         certificates[cert.sha1_fingerprint] = cert
 
+    if "targets" in data:
+        del data["targets"]
     host_data = deepcopy(data)
     host_data["tls"]["certificates"] = list(certificates.keys())
     host = internals.Host(**host_data)  # type: ignore
@@ -118,7 +122,8 @@ def handler(event, context):
         report_id=report_id,
         results_uri=f"/result/{report_id}/detail",
         account_name=queue.account.name,
-        targets=[host],
+        targets=[f"{host.transport.hostname}:{host.transport.port}"],
+        certificates=list(certificates.keys()),
         **data,
     )
     if not report.save():
@@ -132,6 +137,8 @@ def handler(event, context):
         if isinstance(data, dict)
     }
     full_report = internals.FullReport(**report.dict())  # type: ignore
+    full_report.targets = [host]
+    full_report.certificates = list(certificates.values())
     for evaluation in data["evaluations"]:
         if evaluation.get("description"):
             del evaluation["description"]

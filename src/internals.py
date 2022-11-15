@@ -459,8 +459,8 @@ class EvaluationItem(DefaultInfo):
         validate_assignment = True
 
     report_id: str
-    rule_id: str
-    group_id: str
+    rule_id: int
+    group_id: int
     key: str
     name: str
     group: str
