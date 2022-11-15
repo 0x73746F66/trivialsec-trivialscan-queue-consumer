@@ -1,0 +1,33 @@
+{
+    "generator": "trivialscan-on-demand",
+    "version": "0.3.7",
+    "account_name": "jorge-da-silva",
+    "client_name": null,
+    "report_id": "BGtHcXamwAsiuEG0Uf7wvXgr2ZHsYI_cBkgT8l9kIgpUYRJAB0sdxBFBLOCUqDLk-3EWt6FrfhQ",
+    "project_name": null,
+    "targets": [
+        "www.trivialsec.com:443"
+    ],
+    "date": "2022-11-15 10:21:17",
+    "execution_duration_seconds": 26.668491,
+    "score": 2850,
+    "results": {
+        "pass": 135,
+        "info": 10,
+        "warn": 22,
+        "fail": 43
+    },
+    "certificates": [
+        "df2894c9454f12da8d20af63c5bd020ae7bbc739",
+        "8da7f965ec5efc37910f1c6e59fdc1cc6a6ede16",
+        "917e732d330f9a12404f73d8bea36948b929dffc",
+        "925a8f8d2c6d04e0665f596aff22d863e8256f3f",
+        "06b25927c42a721631c1efd9431e648fa62e1e39",
+        "ad7e1c28b064ef8f6003402014c3d0e3370eb58a",
+        "9e99a48a9960b14926bb7f3b02e22da2b0ab7280"
+    ],
+    "results_uri": "/result/BGtHcXamwAsiuEG0Uf7wvXgr2ZHsYI_cBkgT8l9kIgpUYRJAB0sdxBFBLOCUqDLk-3EWt6FrfhQ/detail",
+    "flags": null,
+    "config": null,
+    "client": null
+}

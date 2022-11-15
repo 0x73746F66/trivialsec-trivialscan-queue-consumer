@@ -12,4 +12,4 @@ black
 pre-commit
 detect-secrets
 pip-audit
-rich
+rich==12.4.4

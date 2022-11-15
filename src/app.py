@@ -42,7 +42,7 @@ def handler(event, context):
             break
     if not scan_target:
         internals.logger.warning(
-            "Nothing to scan, the next line is probably what triggered this"
+            "Nothing to scan"
         )
         return
     if not queue.save():
@@ -82,8 +82,9 @@ def handler(event, context):
         f"Negotiated {transport.store.tls_state.negotiated_protocol} {transport.store.tls_state.peer_address}"
     )
     if internals.BUILD_ENV == "local":
-        internals.logger.info(f"Save local file: .{internals.BUILD_ENV}/report.json")
-        handle = Path(f"./.{internals.BUILD_ENV}/report.json")
+        file_path = f".{internals.BUILD_ENV}/reports/{scan_target.hostname}-{scan_target.port}/scan.json"
+        internals.logger.info(f"Save local file: {file_path}")
+        handle = Path(file_path)
         handle.write_text(json.dumps(data, indent=4, default=str), "utf8")
 
     certificates = {}
@@ -101,7 +102,7 @@ def handler(event, context):
             internals.logger.warning(
                 f"Certificate PEM failed to save {cert.sha1_fingerprint}"
             )
-        certificates[cert.sha1_fingerprint] = cert
+        certificates[cert.sha1_fingerprint] = certdata
 
     if "targets" in data:
         del data["targets"]
@@ -110,7 +111,7 @@ def handler(event, context):
     host = internals.Host(**host_data)  # type: ignore
     if not host.save():
         internals.logger.info(
-            f"Storing Host {host.transport.hostname}:{host.transport.port} {host.transport.peer_address}"
+            f"Storing Host {scan_target.hostname}:{scan_target.port} {host.transport.peer_address}"
         )
 
     report_id = token_urlsafe(56)
@@ -122,13 +123,18 @@ def handler(event, context):
         report_id=report_id,
         results_uri=f"/result/{report_id}/detail",
         account_name=queue.account.name,
-        targets=[f"{host.transport.hostname}:{host.transport.port}"],
+        targets=[f"{scan_target.hostname}:{scan_target.port}"],
         certificates=list(certificates.keys()),
         **data,
     )
     if not report.save():
         internals.logger.critical(f"Error storing full report: {report_id}")
         return
+    if internals.BUILD_ENV == "local":
+        file_path = f".{internals.BUILD_ENV}/reports/{scan_target.hostname}-{scan_target.port}/summary.json"
+        internals.logger.info(f"Save local file: {file_path}")
+        handle = Path(file_path)
+        handle.write_text(json.dumps(report.dict(), indent=4, default=str), "utf8")
 
     groups = {
         (data["compliance"], data["version"])
@@ -136,9 +142,10 @@ def handler(event, context):
         for data in evaluation["compliance"]
         if isinstance(data, dict)
     }
-    full_report = internals.FullReport(**report.dict())  # type: ignore
-    full_report.targets = [host]
-    full_report.certificates = list(certificates.values())
+    _report = report.dict()
+    _report['targets'] = [host.dict()]
+    _report['certificates'] = [certdata for _, certdata in certificates.items()]
+    full_report = internals.FullReport(**_report)  # type: ignore
     for evaluation in data["evaluations"]:
         if evaluation.get("description"):
             del evaluation["description"]
@@ -165,7 +172,7 @@ def handler(event, context):
         evaluation["compliance"] = compliance_results
 
         threats = []
-        for threat in data.get("threats", []) or []:
+        for threat in evaluation.get("threats", []) or []:
             if threat.get("description"):
                 del threat["description"]
             if threat.get("technique_description"):
@@ -199,6 +206,11 @@ def handler(event, context):
     if not full_report.save():
         internals.logger.critical(f"Error storing full report: {report_id}")
         return
+    if internals.BUILD_ENV == "local":
+        file_path = f".{internals.BUILD_ENV}/reports/{scan_target.hostname}-{scan_target.port}/full.json"
+        internals.logger.info(f"Save local file: {file_path}")
+        handle = Path(file_path)
+        handle.write_text(json.dumps(full_report.dict(), indent=4, default=str), "utf8")
 
     internals.logger.info(f"SUCCESS {report_id}")
     queue_targets = []
