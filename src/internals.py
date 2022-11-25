@@ -1,7 +1,7 @@
 # pylint: disable=no-self-argument, arguments-differ
 import logging
 import json
-from datetime import datetime, time, timezone
+from datetime import datetime
 from enum import Enum
 from typing import Union, Any, Optional
 from os import getenv
@@ -411,7 +411,18 @@ class ReferenceItem(BaseModel):
     url: Union[AnyHttpUrl, None]
 
 
-class ReportSummary(DefaultInfo, DAL):
+class ScanRecordType(str, Enum):
+    MONITORING = "Managed Monitoring"
+    ONDEMAND = "Managed On-demand"
+    SELF_MANAGED = "Customer-managed"
+
+class ScanRecordCategory(str, Enum):
+    ASM = "Attack Surface Monitoring"
+    RECONNAISSANCE = "Reconnaissance"
+    OSINT = "Public Data Sources"
+    INTEGRATION_DATA = "Third Party Integration"
+
+class ReportSummary(DefaultInfo):
     report_id: str
     project_name: Union[str, None]
     targets: Union[list[str], list[Host]] = Field(default=[])
@@ -424,35 +435,9 @@ class ReportSummary(DefaultInfo, DAL):
     flags: Union[Flags, None] = Field(default=None)
     config: Union[Config, None] = Field(default=None)
     client: Optional[Union[ClientInfo, None]] = Field(default=None)
-
-    def load(
-        self, report_id: Union[str, None] = None, account_name: Union[str, None] = None
-    ) -> Union["ReportSummary", None]:
-        if report_id:
-            self.report_id = report_id
-        if account_name:
-            self.account_name = account_name
-
-        object_key = f"{APP_ENV}/accounts/{self.account_name}/results/{self.report_id}/summary.json"
-        raw = services.aws.get_s3(path_key=object_key)
-        if not raw:
-            logger.warning(f"Missing ReportSummary {object_key}")
-            return
-        try:
-            data = json.loads(raw)
-        except json.decoder.JSONDecodeError as err:
-            logger.debug(err, exc_info=True)
-            return
-        if not data or not isinstance(data, dict):
-            logger.warning(f"Missing ReportSummary {object_key}")
-            return
-        super().__init__(**data)
-        return self
-
-    def save(self) -> bool:
-        object_key = f"{APP_ENV}/accounts/{self.account_name}/results/{self.report_id}/summary.json"
-        return services.aws.store_s3(object_key, json.dumps(self.dict(), default=str))
-
+    type: Union[ScanRecordType, None] = Field(default=None)
+    category: Union[ScanRecordCategory, None] = Field(default=None)
+    is_passive: Optional[bool] = Field(default=True)
 
 class EvaluationItem(DefaultInfo):
     class Config:
@@ -526,19 +511,6 @@ class FullReport(ReportSummary, DAL):
         )
         return all(results)
 
-
-class ComplianceChartItem(BaseModel):
-    name: str
-    num: int
-    timestamp: int
-
-
-class DashboardCompliance(BaseModel):
-    label: GraphLabel
-    ranges: list[GraphLabelRanges]
-    data: dict[GraphLabelRanges, list[ComplianceChartItem]]
-
-
 class QueueHostname(BaseModel):
     timestamp: int
     scan_timestamp: Union[int, None] = Field(default=None)
@@ -546,21 +518,32 @@ class QueueHostname(BaseModel):
     port: int = Field(default=443)
     http_paths: list[str]
 
+class MonitorHostname(BaseModel):
+    hostname: str
+    timestamp: int
+    enabled: bool = Field(default=False)
 
-class Queue(BaseModel, DAL):
-    account: MemberAccount
-    targets: list[QueueHostname] = Field(default=[])
+class ScannerRecord(BaseModel, DAL):
+    account: MemberAccountRedacted
+    queue_targets: list[QueueHostname] = Field(default=[])
+    monitored_targets: list[MonitorHostname] = Field(default=[])
+    history: list[ReportSummary] = Field(default=[])
+
+    @property
+    def object_key(self):
+        return f"{APP_ENV}/accounts/{self.account.name}/scanner-record.json"
 
     def exists(self, account_name: Union[str, None] = None) -> bool:
-        return self.load(account_name) is not None
-
-    def load(self, account_name: Union[str, None] = None) -> Union["Queue", None]:
         if account_name:
             self.account = MemberAccount(name=account_name).load()  # type: ignore
-        object_key = f"{APP_ENV}/accounts/{self.account.name}/on-demand-queue.json"  # type: ignore
-        raw = services.aws.get_s3(path_key=object_key)
+        return services.aws.object_exists(self.object_key) is True
+
+    def load(self, account_name: Union[str, None] = None) -> Union['ScannerRecord', None]:
+        if account_name:
+            self.account = MemberAccount(name=account_name).load()  # type: ignore
+        raw = services.aws.get_s3(path_key=self.object_key)
         if not raw:
-            logger.warning(f"Missing Queue {object_key}")
+            logger.warning(f"Missing Queue {self.object_key}")
             return
         try:
             data = json.loads(raw)
@@ -568,15 +551,17 @@ class Queue(BaseModel, DAL):
             logger.debug(err, exc_info=True)
             return
         if not data or not isinstance(data, dict):
-            logger.warning(f"Missing Queue {object_key}")
+            logger.warning(
+                f"Missing Queue {self.object_key}")
             return
         super().__init__(**data)
         return self
 
     def save(self) -> bool:
-        object_key = f"{APP_ENV}/accounts/{self.account.name}/on-demand-queue.json"  # type: ignore
-        return services.aws.store_s3(object_key, json.dumps(self.dict(), default=str))
+        return services.aws.store_s3(
+            self.object_key,
+            json.dumps(self.dict(), default=str)
+        )
 
     def delete(self) -> bool:
-        object_key = f"{APP_ENV}/accounts/{self.account.name}/on-demand-queue.json"  # type: ignore
-        return services.aws.delete_s3(object_key)
+        return services.aws.delete_s3(self.object_key)

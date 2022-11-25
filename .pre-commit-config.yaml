@@ -7,7 +7,7 @@ repos:
         args: [--py37-plus]
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.3.0
+    rev: v4.4.0
     hooks:
       - id: check-ast
         files: src
@@ -40,7 +40,7 @@ repos:
         args: ["--domains", "trivialsec.com"]
 
   - repo: https://github.com/crate-ci/typos
-    rev: v1.12.14
+    rev: v1.13.0
     hooks:
       - id: typos
         files: src
@@ -78,7 +78,7 @@ repos:
         files: src
 
   - repo: https://github.com/PyCQA/flake8
-    rev: 5.0.4
+    rev: 6.0.0
     hooks:
       - id: flake8
         args: [--max-line-length=101]

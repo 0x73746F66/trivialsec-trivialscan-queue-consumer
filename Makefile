@@ -52,7 +52,7 @@ env:
 	@echo -e $(bold)$(primary)APP_ENV$(clear) = $(APP_ENV)
 	@echo -e $(bold)$(primary)CI_BUILD_REF$(clear) = $(CI_BUILD_REF)
 
-output: env init
+output: env
 	@echo -e $(bold)$(primary)trivialscan_ondemand_arn$(clear) = $(shell terraform -chdir=plans output trivialscan_ondemand_arn)
 	@echo -e $(bold)$(primary)trivialscan_ondemand_role$(clear) = $(shell terraform -chdir=plans output trivialscan_ondemand_role)
 	@echo -e $(bold)$(primary)trivialscan_ondemand_role_arn$(clear) = $(shell terraform -chdir=plans output trivialscan_ondemand_role_arn)

@@ -20,22 +20,16 @@ def handler(event, context):
     if not trigger_object.startswith(f"{internals.APP_ENV}/accounts/"):
         internals.logger.critical("Bad prefix path")
         return
-    if not trigger_object.endswith("on-demand-queue.json"):
+    if not trigger_object.endswith("scanner-record.json"):
         internals.logger.critical("Bad suffix path")
         return
-
-    queue = None
-    if raw := services.aws.get_s3(path_key=trigger_object):
-        try:
-            model_data = json.loads(raw)
-            queue = internals.Queue(**model_data)
-        except json.JSONDecodeError as err:
-            internals.logger.warning(err, exc_info=True)
-    if not queue or len(queue.targets) == 0:
+    _, _, account_name, *_ = trigger_object.split("/")
+    scanner_record = internals.ScannerRecord(account=internals.MemberAccount(name=account_name).load()).load()  # type: ignore
+    if not scanner_record or len(scanner_record.queue_targets) == 0:
         internals.logger.warning("No queue data, so why did this trigger?")
         return
     scan_target = None
-    for target in queue.targets:
+    for target in scanner_record.queue_targets:
         if not target.scan_timestamp:
             target.scan_timestamp = datetime.utcnow().timestamp() * 1000
             scan_target = target.copy()
@@ -45,9 +39,9 @@ def handler(event, context):
             "Nothing to scan"
         )
         return
-    if not queue.save():
+    if not scanner_record.save():
         internals.logger.error(
-            "Queue failed to save, this will cause duplicate scanning issues"
+            "ScannerRecord failed to save, this will cause duplicate scanning issues"
         )
 
     internals.logger.info(f"SCANNING {scan_target.hostname}:{scan_target.port}")
@@ -64,17 +58,17 @@ def handler(event, context):
             f"No response from target: {scan_target.hostname}:{scan_target.port}"
         )
         queue_targets = []
-        for target in queue.targets:
+        for target in scanner_record.queue_targets:
             if (
                 target.hostname == scan_target.hostname
                 and target.port == scan_target.port
             ):
                 continue
             queue_targets.append(target)
-        queue.targets = queue_targets
-        if not queue.save():
+        scanner_record.queue_targets = queue_targets
+        if not scanner_record.save():
             internals.logger.error(
-                "Queue failed to save, this will cause duplicate scanning issues"
+                "ScannerRecord failed to update, this will cause duplicate scanning issues"
             )
         return
 
@@ -87,22 +81,22 @@ def handler(event, context):
         handle = Path(file_path)
         handle.write_text(json.dumps(data, indent=4, default=str), "utf8")
 
-    certificates = {}
+    certificates: dict[str, internals.Certificate] = {}
     if "certificates" in data:
         del data["certificates"]
-    for certdata in data["tls"].get("certificates", []):
-        cert = internals.Certificate(**certdata)  # type: ignore
+    for cert_data in data["tls"].get("certificates", []):
+        cert = internals.Certificate(**cert_data)  # type: ignore
         internals.logger.info(f"Storing certificate data {cert.sha1_fingerprint}")
         if not cert.save():
             internals.logger.warning(
                 f"Certificate failed to save {cert.sha1_fingerprint}"
             )
         internals.logger.info(f"Storing certificate PEM {cert.sha1_fingerprint}")
-        if not services.aws.store_s3(f"{internals.APP_ENV}/certificates/{cert.sha1_fingerprint}.pem", certdata["pem"]):  # type: ignore
+        if not services.aws.store_s3(f"{internals.APP_ENV}/certificates/{cert.sha1_fingerprint}.pem", cert_data["pem"]):  # type: ignore
             internals.logger.warning(
                 f"Certificate PEM failed to save {cert.sha1_fingerprint}"
             )
-        certificates[cert.sha1_fingerprint] = certdata
+        certificates[cert.sha1_fingerprint] = cert
 
     if "targets" in data:
         del data["targets"]
@@ -122,14 +116,14 @@ def handler(event, context):
         execution_duration_seconds=execution_duration_seconds,
         report_id=report_id,
         results_uri=f"/result/{report_id}/detail",
-        account_name=queue.account.name,
-        targets=[f"{scan_target.hostname}:{scan_target.port}"],
-        certificates=list(certificates.keys()),
+        account_name=scanner_record.account.name,
+        targets=[host],
+        certificates=list(certificates.values()),
+        type=internals.ScanRecordType.ONDEMAND,
+        category=internals.ScanRecordCategory.RECONNAISSANCE,
+        is_passive=True,
         **data,
     )
-    if not report.save():
-        internals.logger.critical(f"Error storing full report: {report_id}")
-        return
     if internals.BUILD_ENV == "local":
         file_path = f".{internals.BUILD_ENV}/reports/{scan_target.hostname}-{scan_target.port}/summary.json"
         internals.logger.info(f"Save local file: {file_path}")
@@ -142,10 +136,7 @@ def handler(event, context):
         for data in evaluation["compliance"]
         if isinstance(data, dict)
     }
-    _report = report.dict()
-    _report['targets'] = [host.dict()]
-    _report['certificates'] = [certdata for _, certdata in certificates.items()]
-    full_report = internals.FullReport(**_report)  # type: ignore
+    full_report = internals.FullReport(**report.dict())  # type: ignore
     for evaluation in data["evaluations"]:
         if evaluation.get("description"):
             del evaluation["description"]
@@ -186,7 +177,7 @@ def handler(event, context):
         item = internals.EvaluationItem(
             generator=full_report.generator,
             version=full_report.version,
-            account_name=queue.account.name,  # type: ignore
+            account_name=scanner_record.account.name,  # type: ignore
             client_name=full_report.client_name,
             report_id=report_id,
             observed_at=full_report.date,
@@ -214,25 +205,13 @@ def handler(event, context):
 
     internals.logger.info(f"SUCCESS {report_id}")
     queue_targets = []
-    for target in queue.targets:
+    for target in scanner_record.queue_targets:
         if target.hostname == scan_target.hostname and target.port == scan_target.port:
             continue
         queue_targets.append(target)
-    queue.targets = queue_targets
-    if not queue.save():
+    scanner_record.queue_targets = queue_targets
+    scanner_record.history.append(report)
+    if not scanner_record.save():
         internals.logger.error(
-            "Queue failed to save, this will cause duplicate scanning issues"
-        )
-
-    scans_map: dict[str, dict[str, list[str]]] = {}
-    object_key = f"{internals.APP_ENV}/accounts/{queue.account.name}/scan-history.json"  # type: ignore
-    if history_raw := services.aws.get_s3(path_key=object_key):
-        scans_map: dict[str, dict[str, list[str]]] = json.loads(history_raw)
-    for _target in full_report.targets or []:
-        target = f"{_target.transport.hostname}:{_target.transport.port}"
-        scans_map.setdefault(target, {"reports": []})  # type: ignore
-        scans_map[target]["reports"].append(report.report_id)  # type: ignore
-    if not services.aws.store_s3(object_key, json.dumps(scans_map, default=str)):
-        internals.logger.error(
-            f"Error storing scan-history.json for account {queue.account.name}"
+            "ScannerRecord failed to delete target and save history, this will cause duplicate scanning issues"
         )
