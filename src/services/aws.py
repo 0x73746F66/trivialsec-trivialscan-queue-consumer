@@ -72,7 +72,7 @@ def get_ssm(parameter: str, default: Any = None, **kwargs) -> Any:
             else response.get("Parameter", {}).get("Value", default)
         )
     except ClientError as err:
-        if err.response["Error"]["Code"] == "ResourceNotFoundException":  # type: ignore
+        if err.response["Error"]["Code"] == "ParameterNotFound":  # type: ignore
             internals.logger.warning(f"The requested secret {parameter} was not found")
         elif err.response["Error"]["Code"] == "InvalidRequestException":  # type: ignore
             internals.logger.warning(f"The request was invalid due to: {err}")

@@ -1,7 +1,7 @@
 ---
 repos:
   - repo: https://github.com/asottile/pyupgrade
-    rev: v3.2.2
+    rev: v3.3.1
     hooks:
       - id: pyupgrade
         args: [--py37-plus]
@@ -40,7 +40,7 @@ repos:
         args: ["--domains", "trivialsec.com"]
 
   - repo: https://github.com/crate-ci/typos
-    rev: v1.13.0
+    rev: typos-dict-v0.9.13
     hooks:
       - id: typos
         files: src
@@ -61,7 +61,7 @@ repos:
       - id: prettier
 
   - repo: https://github.com/antonbabenko/pre-commit-terraform
-    rev: v1.76.0
+    rev: v1.77.0
     hooks:
       - id: terraform_validate
       - id: terraform_checkov
@@ -72,7 +72,7 @@ repos:
           - --args=--skip-check CKV_AWS_18,CKV_AWS_19,CKV_AWS_21,CKV2_AWS_34,CKV_AWS_50,CKV_AWS_115,CKV_AWS_116,CKV_AWS_117,CKV_AWS_144,CKV_AWS_145,CKV_AWS_173
 
   - repo: https://github.com/psf/black
-    rev: 22.10.0
+    rev: 22.12.0
     hooks:
       - id: black
         files: src

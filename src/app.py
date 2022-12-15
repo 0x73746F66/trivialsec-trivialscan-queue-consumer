@@ -9,6 +9,7 @@ from trivialscan.cli.__main__ import __version__ as trivialscan_version
 
 import internals
 import services.aws
+import services.sendgrid
 
 
 def handler(event, context):
@@ -28,7 +29,7 @@ def handler(event, context):
     if not scanner_record or len(scanner_record.queue_targets) == 0:
         internals.logger.warning("No queue data, so why did this trigger?")
         return
-    scan_target = None
+    scan_target: internals.QueueHostname = None
     for target in scanner_record.queue_targets:
         if not target.scan_timestamp:
             target.scan_timestamp = datetime.utcnow().timestamp() * 1000
@@ -215,3 +216,27 @@ def handler(event, context):
         internals.logger.error(
             "ScannerRecord failed to delete target and save history, this will cause duplicate scanning issues"
         )
+
+    sendgrid = services.sendgrid.send_email(
+        subject=f"On-demand scanning complete {scan_target.hostname}:{scan_target.port}",
+        recipient=scan_target.queued_by,
+        template="scan_completed",
+        data={
+            'hostname': scan_target.hostname,
+            'port': scan_target.port,
+            'results_uri': report.results_uri,
+            'score': report.score,
+            'pass_result': report.results.get('pass', 0),
+            'info_result': report.results.get('info', 0),
+            'warn_result': report.results.get('warn', 0),
+            'fail_result': report.results.get('fail', 0),
+        },
+    )
+    if sendgrid._content:  # pylint: disable=protected-access
+        res = json.loads(
+            sendgrid._content.decode()
+        )  # pylint: disable=protected-access
+        if isinstance(res, dict) and res.get("errors"):
+            internals.logger.error(res.get("errors"))
+            return
+        return res

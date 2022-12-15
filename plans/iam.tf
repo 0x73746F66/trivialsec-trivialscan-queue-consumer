@@ -42,6 +42,15 @@ data "aws_iam_policy_document" "trivialscan_ondemand_iam_policy" {
       "arn:aws:s3:::${data.terraform_remote_state.trivialscan_s3.outputs.trivialscan_store_bucket[0]}/${var.app_env}/*",
     ]
   }
+  statement {
+    sid = "${var.app_env}TrivialScannerOnDemandSecrets"
+    actions   = [
+      "ssm:GetParameter",
+    ]
+    resources = [
+      "arn:aws:ssm:${local.aws_default_region}:${local.aws_master_account_id}:parameter/${var.app_env}/${var.app_name}/*",
+    ]
+  }
 }
 resource "aws_iam_role" "trivialscan_ondemand_role" {
   name               = "${lower(var.app_env)}_trivialscan_ondemand_lambda_role"

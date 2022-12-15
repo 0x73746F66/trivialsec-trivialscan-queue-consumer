@@ -517,6 +517,7 @@ class QueueHostname(BaseModel):
     hostname: str
     port: int = Field(default=443)
     http_paths: list[str]
+    queued_by: str
 
 class MonitorHostname(BaseModel):
     hostname: str
