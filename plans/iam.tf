@@ -1,6 +1,6 @@
-data "aws_iam_policy_document" "trivialscan_ondemand_assume_role_policy" {
+data "aws_iam_policy_document" "trivialscan_queue_consumer_assume_role_policy" {
   statement {
-    sid = "${var.app_env}TrivialScannerOnDemandAssumeRole"
+    sid = "${var.app_env}TrivialScannerQueueConsumerAssumeRole"
     actions    = ["sts:AssumeRole"]
     principals {
       type        = "Service"
@@ -8,9 +8,9 @@ data "aws_iam_policy_document" "trivialscan_ondemand_assume_role_policy" {
     }
   }
 }
-data "aws_iam_policy_document" "trivialscan_ondemand_iam_policy" {
+data "aws_iam_policy_document" "trivialscan_queue_consumer_iam_policy" {
   statement {
-    sid = "${var.app_env}TrivialScannerOnDemandLogging"
+    sid = "${var.app_env}TrivialScannerQueueConsumerLogging"
     actions   = [
       "logs:CreateLogGroup",
       "logs:CreateLogStream",
@@ -21,7 +21,7 @@ data "aws_iam_policy_document" "trivialscan_ondemand_iam_policy" {
     ]
   }
   statement {
-    sid = "${var.app_env}TrivialScannerOnDemandObjList"
+    sid = "${var.app_env}TrivialScannerQueueConsumerObjList"
     actions   = [
       "s3:Head*",
       "s3:List*",
@@ -32,7 +32,7 @@ data "aws_iam_policy_document" "trivialscan_ondemand_iam_policy" {
     ]
   }
   statement {
-    sid = "${var.app_env}TrivialScannerOnDemandObjAccess"
+    sid = "${var.app_env}TrivialScannerQueueConsumerObjAccess"
     actions   = [
       "s3:DeleteObject",
       "s3:GetObject",
@@ -43,7 +43,7 @@ data "aws_iam_policy_document" "trivialscan_ondemand_iam_policy" {
     ]
   }
   statement {
-    sid = "${var.app_env}TrivialScannerOnDemandSecrets"
+    sid = "${var.app_env}TrivialScannerQueueConsumerSecrets"
     actions   = [
       "ssm:GetParameter",
     ]
@@ -51,20 +51,32 @@ data "aws_iam_policy_document" "trivialscan_ondemand_iam_policy" {
       "arn:aws:ssm:${local.aws_default_region}:${local.aws_master_account_id}:parameter/${var.app_env}/${var.app_name}/*",
     ]
   }
+  statement {
+    sid = "${var.app_env}TrivialScannerQueueConsumerSQS"
+    actions   = [
+      "sqs:ReceiveMessage",
+      "sqs:DeleteMessage",
+      "sqs:ChangeMessageVisibility",
+      "sqs:Get*",
+    ]
+    resources = [
+      "arn:aws:sqs:*:${local.aws_master_account_id}:${lower(var.app_env)}-reconnaissance"
+    ]
+  }
 }
-resource "aws_iam_role" "trivialscan_ondemand_role" {
-  name               = "${lower(var.app_env)}_trivialscan_ondemand_lambda_role"
-  assume_role_policy = data.aws_iam_policy_document.trivialscan_ondemand_assume_role_policy.json
+resource "aws_iam_role" "trivialscan_queue_consumer_role" {
+  name               = "${lower(var.app_env)}_trivialscan_queue_consumer_lambda_role"
+  assume_role_policy = data.aws_iam_policy_document.trivialscan_queue_consumer_assume_role_policy.json
   lifecycle {
     create_before_destroy = true
   }
 }
-resource "aws_iam_policy" "trivialscan_ondemand_policy" {
-  name        = "${lower(var.app_env)}_trivialscan_ondemand_lambda_policy"
+resource "aws_iam_policy" "trivialscan_queue_consumer_policy" {
+  name        = "${lower(var.app_env)}_trivialscan_queue_consumer_lambda_policy"
   path        = "/"
-  policy      = data.aws_iam_policy_document.trivialscan_ondemand_iam_policy.json
+  policy      = data.aws_iam_policy_document.trivialscan_queue_consumer_iam_policy.json
 }
 resource "aws_iam_role_policy_attachment" "policy_attach" {
-  role       = aws_iam_role.trivialscan_ondemand_role.name
-  policy_arn = aws_iam_policy.trivialscan_ondemand_policy.arn
+  role       = aws_iam_role.trivialscan_queue_consumer_role.name
+  policy_arn = aws_iam_policy.trivialscan_queue_consumer_policy.arn
 }

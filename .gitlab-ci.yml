@@ -1,11 +1,11 @@
 variables:
   BUILD_ENV: ci
   APP_ENV: Prod
-  SOURCE_FILE: prod-trivialscan-on-demand.zip
-  IMAGE_NAME: trivialscan-on-demand-ci
+  SOURCE_FILE: prod-trivialscan-queue-consumer.zip
+  IMAGE_NAME: trivialscan-queue-consumer-ci
   TF_VAR_app_env: Prod
   TF_VAR_log_level: WARNING
-  TF_VAR_app_name: trivialscan-on-demand
+  TF_VAR_app_name: trivialscan-queue-consumer
   TF_LOG: WARN
 
 stages:

@@ -12,25 +12,21 @@ from rich.logging import RichHandler
 import app
 import internals
 
-BUILD_ENV = getenv("BUILD_ENV", "development")
-APP_NAME = getenv("APP_NAME", "trivialscan-on-demand")
-APP_ENV = getenv("APP_ENV", "Dev" if BUILD_ENV == "development" else "Prod")
 AWS_ACCOUNT = getenv("AWS_ACCOUNT", "984310022655")
 AWS_REGION = getenv("AWS_REGION", "ap-southeast-2")
 
-
 def cli():
     now = datetime.utcnow()
-    invoke_payload = Path(f".{BUILD_ENV}/invoke-payload.json")
+    invoke_payload = Path(f".{internals.BUILD_ENV}/invoke-payload.json")
     event = json.loads(invoke_payload.read_text(encoding="utf8"))
     context = {
         "aws_request_id": uuid4(),
-        "log_group_name": f"/aws/lambda/{APP_NAME}",
+        "log_group_name": f"/aws/lambda/{internals.APP_NAME}",
         "log_stream_name": f"{now.strftime('%Y/%m/%d')}/[$LATEST]efedd01b329b4041b660f9ce510228cc",
-        "function_name": APP_NAME,
+        "function_name": internals.APP_NAME,
         "memory_limit_in_mb": 128,
         "function_version": "$LATEST",
-        "invoked_function_arn": f"arn:aws:lambda:{AWS_REGION}:{AWS_ACCOUNT}:function:{APP_NAME}",
+        "invoked_function_arn": f"arn:aws:lambda:{AWS_REGION}:{AWS_ACCOUNT}:function:{internals.APP_NAME}",
         "client_context": None,
         "identity": None,
     }

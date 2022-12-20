@@ -13,9 +13,9 @@ variable "app_env" {
   default     = "Dev"
 }
 variable "app_name" {
-  description = "default trivialscan-on-demand"
+  description = "default trivialscan-queue-consumer"
   type        = string
-  default     = "trivialscan-on-demand"
+  default     = "trivialscan-queue-consumer"
 }
 variable "build_env" {
   description = "BUILD_ENV"

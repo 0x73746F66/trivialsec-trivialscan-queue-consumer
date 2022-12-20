@@ -53,10 +53,10 @@ env:
 	@echo -e $(bold)$(primary)CI_BUILD_REF$(clear) = $(CI_BUILD_REF)
 
 output: env
-	@echo -e $(bold)$(primary)trivialscan_ondemand_arn$(clear) = $(shell terraform -chdir=plans output trivialscan_ondemand_arn)
-	@echo -e $(bold)$(primary)trivialscan_ondemand_role$(clear) = $(shell terraform -chdir=plans output trivialscan_ondemand_role)
-	@echo -e $(bold)$(primary)trivialscan_ondemand_role_arn$(clear) = $(shell terraform -chdir=plans output trivialscan_ondemand_role_arn)
-	@echo -e $(bold)$(primary)trivialscan_ondemand_policy_arn$(clear) = $(shell terraform -chdir=plans output trivialscan_ondemand_policy_arn)
+	@echo -e $(bold)$(primary)trivialscan_queue_consumer_arn$(clear) = $(shell terraform -chdir=plans output trivialscan_queue_consumer_arn)
+	@echo -e $(bold)$(primary)trivialscan_queue_consumer_role$(clear) = $(shell terraform -chdir=plans output trivialscan_queue_consumer_role)
+	@echo -e $(bold)$(primary)trivialscan_queue_consumer_role_arn$(clear) = $(shell terraform -chdir=plans output trivialscan_queue_consumer_role_arn)
+	@echo -e $(bold)$(primary)trivialscan_queue_consumer_policy_arn$(clear) = $(shell terraform -chdir=plans output trivialscan_queue_consumer_policy_arn)
 
 build: env ## makes the lambda zip archive
 	./.$(BUILD_ENV)/bin/build-archive
@@ -114,4 +114,4 @@ local-runner: ## local setup for a gitlab runner
 		--executor shell
 
 tail-aws-logs: ## Install using pipx install awscliv2
-	awsv2 logs tail "/aws/lambda/$(shell sed -e 's/\(.*\)/\L\1/' <<< "${APP_ENV}")-trivialscan-on-demand" --follow
+	awsv2 logs tail "/aws/lambda/$(shell sed -e 's/\(.*\)/\L\1/' <<< "${APP_ENV}")-trivialscan-queue-consumer" --follow

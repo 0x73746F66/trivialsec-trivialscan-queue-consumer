@@ -1,8 +1,8 @@
-resource "aws_lambda_function" "trivialscan_ondemand" {
+resource "aws_lambda_function" "trivialscan_queue_consumer" {
   filename      = "${abspath(path.module)}/${local.source_file}"
   source_code_hash = filebase64sha256("${abspath(path.module)}/${local.source_file}")
   function_name = local.function_name
-  role          = aws_iam_role.trivialscan_ondemand_role.arn
+  role          = aws_iam_role.trivialscan_queue_consumer_role.arn
   handler       = "app.handler"
   runtime       = local.python_version
   timeout       = local.timeout
@@ -26,10 +26,17 @@ resource "aws_lambda_function" "trivialscan_ondemand" {
   tags = local.tags
 }
 
-resource "aws_lambda_permission" "allow_bucket" {
-  statement_id  = "${var.app_env}AllowExecutionFromS3BucketS"
+resource "aws_lambda_permission" "allow_queue" {
+  statement_id  = "${var.app_env}AllowExecutionFromSQS"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.trivialscan_ondemand.arn
-  principal     = "s3.amazonaws.com"
-  source_arn    = "arn:aws:s3:::${data.terraform_remote_state.trivialscan_s3.outputs.trivialscan_store_bucket[0]}"
+  function_name = aws_lambda_function.trivialscan_queue_consumer.arn
+  principal     = "sqs.amazonaws.com"
+  source_arn    = data.terraform_remote_state.trivialscan_sqs.outputs.reconnaissance_queue_arn
+}
+
+resource "aws_lambda_event_source_mapping" "trivialscan_queue_consumer_source" {
+  event_source_arn = data.terraform_remote_state.trivialscan_sqs.outputs.reconnaissance_queue_arn
+  enabled          = true
+  function_name    = aws_lambda_function.trivialscan_queue_consumer.arn
+  batch_size       = local.queue_batch_size
 }
