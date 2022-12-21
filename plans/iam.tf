@@ -60,7 +60,7 @@ data "aws_iam_policy_document" "trivialscan_queue_consumer_iam_policy" {
       "sqs:Get*",
     ]
     resources = [
-      "arn:aws:sqs:*:${local.aws_master_account_id}:${lower(var.app_env)}-reconnaissance"
+      data.terraform_remote_state.trivialscan_sqs.outputs.reconnaissance_queue_arn
     ]
   }
 }
