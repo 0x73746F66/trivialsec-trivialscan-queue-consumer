@@ -19,6 +19,7 @@ dependencies = [
     "trivialscan==0.5.0",
     "requests==2.28.1",
     "sendgrid==6.9.7",
+    "pusher==3.3.0",
 ]
 
 [tool.coverage.run]

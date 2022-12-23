@@ -5,9 +5,20 @@ from datetime import datetime
 from secrets import token_urlsafe
 from typing import Optional
 
+from pusher import Pusher
 from trivialscan import trivialscan
 from trivialscan.cli.__main__ import __version__ as trivialscan_version
-from pydantic import BaseModel
+from pydantic import (
+    BaseModel,
+    AnyHttpUrl,
+    PositiveInt,
+    PositiveFloat,
+    EmailStr,
+)
+from pydantic.networks import (
+    IPv4Address,
+    IPv6Address,
+)
 
 import internals
 import models
@@ -49,7 +60,34 @@ class Event(BaseModel):
         kwargs["type"] = body['type']
         super().__init__(**kwargs)
 
+class JSONEncoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, datetime):
+            return o.isoformat()
+        if isinstance(o, (
+            PositiveInt,
+            PositiveFloat,
+        )):
+            return int(o)
+        if isinstance(o, (
+            AnyHttpUrl,
+            IPv4Address,
+            IPv6Address,
+            EmailStr,
+        )):
+            return str(o)
+
+        return super(JSONEncoder, self).default(o)
+
 def handler(event, context):
+    pusher_client = Pusher(
+        app_id='1529125',
+        key='b8b37751841a44557ab2',
+        secret='40e4e05c9f207f2cf3cc',
+        cluster='ap4',
+        ssl=True,
+        json_encoder=JSONEncoder
+    )
     for _record in event["Records"]:
         record = Event(**_record)
         internals.logger.info(f"Triggered by {record}")
@@ -59,6 +97,11 @@ def handler(event, context):
             internals.logger.warning("No queue data, so why did this trigger?")
             continue
         internals.logger.info(f"SCANNING {record.hostname}:{record.port}")
+        pusher_client.trigger(scanner_record.account.name, 'trivial-scanner-status', {
+            "status": "Started",
+            "hostname": record.hostname,
+            "port": record.port,
+        })
         run_start = datetime.utcnow()
         transport = trivialscan(
             hostname=record.hostname,
@@ -66,6 +109,12 @@ def handler(event, context):
             http_request_paths=record.http_paths,
         )
         execution_duration_seconds = (datetime.utcnow() - run_start).total_seconds()
+        pusher_client.trigger(scanner_record.account.name, 'trivial-scanner-status', {
+            "status": "Processing Result",
+            "hostname": record.hostname,
+            "port": record.port,
+            "execution_duration_seconds": execution_duration_seconds,
+        })
         data = transport.store.to_dict()
         if not data.get("tls"):
             internals.logger.info(
@@ -212,6 +261,7 @@ def handler(event, context):
             )
             continue
         if record.queued_by:
+            internals.logger.info("Emailing result")
             sendgrid = services.sendgrid.send_email(
                 subject=f"On-demand scanning complete {record.hostname}:{record.port}",
                 recipient=record.queued_by,
@@ -229,8 +279,29 @@ def handler(event, context):
             )
             if sendgrid._content:  # pylint: disable=protected-access
                 res = json.loads(
-                    sendgrid._content.decode()
-                )  # pylint: disable=protected-access
+                    sendgrid._content.decode()  # pylint: disable=protected-access
+                )
                 if isinstance(res, dict) and res.get("errors"):
                     internals.logger.error(res.get("errors"))
                     continue
+
+        internals.logger.info("Push result")
+        pusher_client.trigger(scanner_record.account.name, 'trivial-scanner-status', {
+            "status": "Complete",
+            "generator": report.generator,
+            "version": report.version,
+            "report_id": report.report_id,
+            "targets": [{
+                "transport": {
+                    'hostname': record.hostname,
+                    'port': record.port,
+                }
+            }],
+            "date": report.date,
+            "results": report.results,
+            "certificates": [cert.sha1_fingerprint for cert in report.certificates],
+            "results_uri": report.results_uri,
+            "type": report.type,
+            "category": report.category,
+            "is_passive": report.is_passive,
+        })
