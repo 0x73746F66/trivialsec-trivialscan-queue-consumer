@@ -31,6 +31,37 @@ class DAL(metaclass=ABCMeta):
         raise NotImplementedError
 
 
+class AccountNotifications(BaseModel):
+    scan_completed: Optional[bool] = Field(default=False)
+    monitor_completed: Optional[bool] = Field(default=False)
+    self_hosted_uploads: Optional[bool] = Field(default=False)
+    early_warning: Optional[bool] = Field(default=False)
+    new_findings_certificates: Optional[bool] = Field(default=False)
+    new_findings_domains: Optional[bool] = Field(default=False)
+    include_warning: Optional[bool] = Field(default=False)
+    include_info: Optional[bool] = Field(default=False)
+
+
+class Webhooks(BaseModel):
+    webhook_endpoint: Union[AnyHttpUrl, None] = Field(default=None)
+    hosted_monitoring: Optional[bool] = Field(default=False)
+    hosted_scanner: Optional[bool] = Field(default=False)
+    self_hosted_uploads: Optional[bool] = Field(default=False)
+    early_warning_email: Optional[bool] = Field(default=False)
+    early_warning_domain: Optional[bool] = Field(default=False)
+    early_warning_ip: Optional[bool] = Field(default=False)
+    new_findings_certificates: Optional[bool] = Field(default=False)
+    new_findings_domains: Optional[bool] = Field(default=False)
+    include_warning: Optional[bool] = Field(default=False)
+    include_info: Optional[bool] = Field(default=False)
+    client_status: Optional[bool] = Field(default=False)
+    client_activity: Optional[bool] = Field(default=False)
+    scanner_configurations: Optional[bool] = Field(default=False)
+    report_created: Optional[bool] = Field(default=False)
+    report_deleted: Optional[bool] = Field(default=False)
+    account_activity: Optional[bool] = Field(default=False)
+    member_activity: Optional[bool] = Field(default=False)
+
 class MemberAccount(BaseModel, DAL):
     name: str
     display: Optional[str]
@@ -40,6 +71,8 @@ class MemberAccount(BaseModel, DAL):
     ip_addr: Union[IPvAnyAddress, None] = Field(default=None)
     user_agent: Union[str, None] = Field(default=None)
     timestamp: Optional[int]
+    notifications: Optional[AccountNotifications] = Field(default=AccountNotifications())
+    webhooks: Optional[Webhooks] = Field(default=Webhooks())
 
     def exists(self, account_name: Union[str, None] = None) -> bool:
         return self.load(account_name) is not None
@@ -237,10 +270,11 @@ class HostTLS(BaseModel):
 
 
 class HostHTTP(BaseModel):
-    title: str
-    status_code: conint(ge=100, le=599)  # type: ignore
-    headers: dict[str, str]
-    body_hash: str
+    title: Optional[str]
+    status_code: Optional[conint(ge=100, le=599)]  # type: ignore
+    headers: Optional[dict[str, str]]
+    body_hash: Optional[str]
+    request_url: Optional[str]
 
 
 class HostTransport(BaseModel):
@@ -505,8 +539,10 @@ class FullReport(ReportSummary, DAL):
 
 class MonitorHostname(BaseModel):
     hostname: str
+    ports: Optional[list[int]] = Field(default=[443])
     timestamp: int
     enabled: bool = Field(default=False)
+    path_names: Optional[list[str]] = Field(default=['/'])
 
 class ScannerRecord(BaseModel, DAL):
     account: MemberAccountRedacted
@@ -549,3 +585,27 @@ class ScannerRecord(BaseModel, DAL):
 
     def delete(self) -> bool:
         return services.aws.delete_s3(self.object_key)
+
+class WebhookEvent(str, Enum):
+    HOSTED_MONITORING = "hosted_monitoring"
+    HOSTED_SCANNER = "hosted_scanner"
+    SELF_HOSTED_UPLOADS = "self_hosted_uploads"
+    EARLY_WARNING_EMAIL = "early_warning_email"
+    EARLY_WARNING_DOMAIN = "early_warning_domain"
+    EARLY_WARNING_IP = "early_warning_ip"
+    NEW_FINDINGS_CERTIFICATES = "new_findings_certificates"
+    NEW_FINDINGS_DOMAINS = "new_findings_domains"
+    INCLUDE_WARNING = "include_warning"
+    INCLUDE_INFO = "include_info"
+    CLIENT_STATUS = "client_status"
+    CLIENT_ACTIVITY = "client_activity"
+    SCANNER_CONFIGURATIONS = "scanner_configurations"
+    REPORT_CREATED = "report_created"
+    REPORT_DELETED = "report_deleted"
+    ACCOUNT_ACTIVITY = "account_activity"
+    MEMBER_ACTIVITY = "member_activity"
+
+class WebhookPayload(BaseModel):
+    event_name: WebhookEvent
+    timestamp: datetime
+    payload: dict

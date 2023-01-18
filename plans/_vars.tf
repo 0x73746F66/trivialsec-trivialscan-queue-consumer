@@ -22,3 +22,11 @@ variable "build_env" {
   type        = string
   default     = "development"
 }
+variable "pusher_app_id" {
+  description = "PUSHER_APP_ID"
+  type        = string
+}
+variable "pusher_key" {
+  description = "PUSHER_KEY"
+  type        = string
+}

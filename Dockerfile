@@ -10,5 +10,6 @@ WORKDIR ${LAMBDA_TASK_ROOT}
 COPY pyproject.toml .
 
 RUN echo "Installing from pyproyect.toml" \
+    && python -m pip install --progress-bar off -U --no-python-version-warning pip \
     && python -m pip install --progress-bar off -U --no-cache-dir .
 CMD [ "app.handler" ]
