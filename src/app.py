@@ -215,7 +215,9 @@ def handler(event, context):
     for _record in event["Records"]:
         record = Event(**_record)
         internals.logger.info(f"Triggered by {record}")
-        account = models.MemberAccountRedacted(name=record.account_name).load()
+        if account_secret := models.MemberAccount(name=record.account_name).load():
+            account = models.MemberAccountRedacted(**account_secret.dict())
+
         scanner_record = models.ScannerRecord(account=account).load()  # type: ignore
         if not scanner_record:
             scanner_record = models.ScannerRecord(account=account)
@@ -244,7 +246,7 @@ def handler(event, context):
             })
             services.webhook.send(
                 event_name=models.WebhookEvent.HOSTED_SCANNER if record.type == models.ScanRecordType.ONDEMAND else models.WebhookEvent.HOSTED_MONITORING,
-                account=account,
+                account=account_secret,
                 data={
                     "hostname": record.hostname,
                     "port": port,
@@ -273,7 +275,7 @@ def handler(event, context):
                 del data["targets"]
             services.webhook.send(
                 event_name=models.WebhookEvent.HOSTED_SCANNER if record.type == models.ScanRecordType.ONDEMAND else models.WebhookEvent.HOSTED_MONITORING,
-                account=account,
+                account=account_secret,
                 data={
                     "hostname": record.hostname,
                     "port": port,
@@ -389,7 +391,7 @@ def handler(event, context):
         })
         services.webhook.send(
             event_name=models.WebhookEvent.HOSTED_SCANNER if record.type == models.ScanRecordType.ONDEMAND else models.WebhookEvent.HOSTED_MONITORING,
-            account=account,
+            account=account_secret,
             data={
                 "generator": full_report.generator,
                 "version": full_report.version,
