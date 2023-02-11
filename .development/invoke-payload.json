@@ -15,7 +15,7 @@
           "binaryListValues": [],
           "dataType": "String",
           "stringListValues": [],
-          "stringValue": "testing"
+          "stringValue": "trivialsec-dev"
         },
         "http_paths": {
           "binaryListValues": [],
@@ -27,7 +27,7 @@
           "binaryListValues": [],
           "dataType": "String",
           "stringListValues": [],
-          "stringValue": "chrislangton84@gmail.com"
+          "stringValue": "chris@trivialsec.com"
         },
         "queued_timestamp": {
           "binaryListValues": [],

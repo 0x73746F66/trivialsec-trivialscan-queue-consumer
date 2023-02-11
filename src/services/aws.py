@@ -70,9 +70,9 @@ def get_ssm(parameter: str, default: Any = None, **kwargs) -> Any:
     try:
         response = ssm_client.get_parameter(Name=parameter, **kwargs)
         return (
-            default
-            if not isinstance(response, dict)
-            else response.get("Parameter", {}).get("Value", default)
+            response.get("Parameter", {}).get("Value", default)
+            if isinstance(response, dict)
+            else default
         )
     except ClientError as err:
         if err.response["Error"]["Code"] == "ParameterNotFound":  # type: ignore
@@ -102,9 +102,9 @@ def store_ssm(parameter: str, value: str, **kwargs) -> bool:
     try:
         response = ssm_client.put_parameter(Name=parameter, Value=value, **kwargs)
         return (
-            False
-            if not isinstance(response, dict)
-            else response.get("Version") is not None
+            response.get("Version") is not None
+            if isinstance(response, dict)
+            else False
         )
     except ClientError as err:
         if err.response["Error"]["Code"] == "ParameterAlreadyExists":  # type: ignore
@@ -154,7 +154,7 @@ def list_s3(prefix_key: str, bucket_name: str = STORE_BUCKET) -> list[str]:
     while next_token is not None:
         args = base_kwargs.copy()
         if next_token != "":
-            args.update({"ContinuationToken": next_token})
+            args["ContinuationToken"] = next_token
         try:
             results = s3_client.list_objects_v2(**args)
 
@@ -225,7 +225,7 @@ def delete_s3(path_key: str, bucket_name: str = STORE_BUCKET, **kwargs) -> bool:
     internals.logger.info(f"delete_s3 object key {path_key}")
     try:
         response = s3_client.delete_object(Bucket=bucket_name, Key=path_key, **kwargs)
-        return False if not isinstance(response, dict) else response.get("DeleteMarker")
+        return response.get("DeleteMarker") if isinstance(response, dict) else False
 
     except ClientError as err:
         if err.response["Error"]["Code"] == "NoSuchKey":  # type: ignore
@@ -270,9 +270,9 @@ def store_s3(
             **kwargs,
         )
         return (
-            False
-            if not isinstance(response, dict)
-            else response.get("ETag") is not None
+            response.get("ETag") is not None
+            if isinstance(response, dict)
+            else False
         )
     except ClientError as err:
         if err.response["Error"]["Code"] == "ParameterAlreadyExists":  # type: ignore
@@ -356,9 +356,9 @@ def store_sqs(queue_name: str, message_body: str, deduplicate: bool = False, ded
 
         response = sqs_client.send_message(**params)
         return (
-            False
-            if not isinstance(response, dict)
-            else response.get("MessageId") is not None
+            response.get("MessageId") is not None
+            if isinstance(response, dict)
+            else False
         )
     except ClientError as err:
         if err.response["Error"]["Code"] == "InvalidMessageContents":  # type: ignore

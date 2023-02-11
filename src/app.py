@@ -1,25 +1,13 @@
 import json
 from copy import deepcopy
-from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from secrets import token_urlsafe
 from typing import Optional
-from ipaddress import (
-    IPv4Address,
-    IPv6Address,
-)
 
 from pusher import Pusher
 from trivialscan import trivialscan
 from trivialscan.cli.__main__ import __version__ as trivialscan_version
-from pydantic import (
-    BaseModel,
-    AnyHttpUrl,
-    PositiveInt,
-    PositiveFloat,
-    EmailStr,
-)
-
+from pydantic import BaseModel
 import internals
 import models
 import services.aws
@@ -33,7 +21,8 @@ class EventAttributes(BaseModel):
     SenderId: str
     ApproximateFirstReceiveTimestamp: datetime
 
-class Event(BaseModel):
+
+class EventRecord(BaseModel):
     messageId: str
     receiptHandle: str
     eventSource: str
@@ -61,25 +50,6 @@ class Event(BaseModel):
         kwargs["type"] = body['type']
         super().__init__(**kwargs)
 
-class JSONEncoder(json.JSONEncoder):
-    def default(self, o):
-        if isinstance(o, datetime):
-            return o.isoformat()
-        if isinstance(o, (
-            PositiveInt,
-            PositiveFloat,
-        )):
-            return int(o)
-        if isinstance(o, (
-            AnyHttpUrl,
-            IPv4Address,
-            IPv6Address,
-            EmailStr,
-        )):
-            return str(o)
-
-        return super(JSONEncoder, self).default(o)
-
 def save_certificates(data: dict):
     for cert_data in data["tls"].get("certificates", []):
         cert = models.Certificate(**cert_data)  # type: ignore
@@ -101,7 +71,7 @@ def process_certificates(data: dict) -> dict[str, models.Certificate]:
         certificates[cert.sha1_fingerprint] = cert
     return certificates
 
-def process_host(data: dict, event: Event, port: int) -> models.Host:
+def process_host(data: dict, event: EventRecord, port: int) -> models.Host:
     host_data = deepcopy(data)
     host_data["tls"]["certificates"] = list(process_certificates(data).keys())
     host = models.Host(**host_data)  # type: ignore
@@ -113,7 +83,7 @@ def process_host(data: dict, event: Event, port: int) -> models.Host:
 
 def process_summary(
         certificates: list[models.Certificate],
-        event: Event,
+        event: EventRecord,
         hosts: list[models.Host],
         report_id: str,
         observed_at: str,
@@ -138,7 +108,8 @@ def process_summary(
         results=results,
     )
 
-def process_evaluations(data: dict, event: Event, host: models.Host, report_id: str, observed_at: str) -> models.FullReport:
+
+def process_evaluations(data: dict, event: EventRecord, host: models.Host, report_id: str, observed_at: str) -> models.FullReport:
     groups = {
         (data["compliance"], data["version"])
         for evaluation in data["evaluations"]
@@ -210,25 +181,28 @@ def handler(event, context):
         secret=services.aws.get_ssm(f"/{internals.APP_ENV}/{internals.APP_NAME}/Pusher/secret", WithDecryption=True),
         cluster='ap4',
         ssl=True,
-        json_encoder=JSONEncoder
+        json_encoder=internals.JSONEncoder
     )
     for _record in event["Records"]:
-        record = Event(**_record)
+        record = EventRecord(**_record)
         internals.logger.info(f"Triggered by {record}")
-        if account_secret := models.MemberAccount(name=record.account_name).load():
-            account = models.MemberAccountRedacted(**account_secret.dict())
+        account_secret = models.MemberAccount(name=record.account_name)
+        if not account_secret.load():
+            internals.logger.info(f"Missing account {record.account_name}")
+            continue
+        account = models.MemberAccountRedacted(**account_secret.dict())
 
-        scanner_record = models.ScannerRecord(account=account).load()  # type: ignore
-        if not scanner_record:
+        scanner_record = models.ScannerRecord(account=account)  # type: ignore
+        if not scanner_record.load():
             scanner_record = models.ScannerRecord(account=account)
             scanner_record.save()
 
         report_id = token_urlsafe(32)
-        observed_at = datetime.utcnow().replace(microsecond=0).isoformat()
+        observed_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
         hosts = []
         all_evaluations = []
         all_certificates = {}
-        run_start = datetime.utcnow()
+        run_start = datetime.now(timezone.utc)
         scores = []
         all_results = {
             "pass": 0,
@@ -245,7 +219,9 @@ def handler(event, context):
                 "port": port,
             })
             services.webhook.send(
-                event_name=models.WebhookEvent.HOSTED_SCANNER if record.type == models.ScanRecordType.ONDEMAND else models.WebhookEvent.HOSTED_MONITORING,
+                event_name=models.WebhookEvent.HOSTED_SCANNER
+                if record.type == models.ScanRecordType.ONDEMAND
+                else models.WebhookEvent.HOSTED_MONITORING,
                 account=account_secret,
                 data={
                     "hostname": record.hostname,
@@ -253,28 +229,37 @@ def handler(event, context):
                     "type": record.type.value,
                     'status': "starting",
                     'account': record.account_name,
-                    'queued_timestamp': datetime.utcnow().timestamp() * 1000,
-                }
+                    'queued_timestamp': datetime.now(timezone.utc).timestamp()
+                    * 1000,
+                },
             )
             transport = trivialscan(
                 hostname=record.hostname,
                 port=port,
                 http_request_paths=record.path_names,
             )
-            pusher_client.trigger(record.account_name, 'trivial-scanner-status', {
-                "status": "Processing Result",
-                "type": record.type.value,
-                "hostname": record.hostname,
-                "port": port,
-                "elapsed_duration_seconds": (datetime.utcnow() - run_start).total_seconds(),
-            })
+            pusher_client.trigger(
+                record.account_name,
+                'trivial-scanner-status',
+                {
+                    "status": "Processing Result",
+                    "type": record.type.value,
+                    "hostname": record.hostname,
+                    "port": port,
+                    "elapsed_duration_seconds": (
+                        datetime.now(timezone.utc) - run_start
+                    ).total_seconds(),
+                },
+            )
             data = transport.store.to_dict()
             if "certificates" in data:
                 del data["certificates"]
             if "targets" in data:
                 del data["targets"]
             services.webhook.send(
-                event_name=models.WebhookEvent.HOSTED_SCANNER if record.type == models.ScanRecordType.ONDEMAND else models.WebhookEvent.HOSTED_MONITORING,
+                event_name=models.WebhookEvent.HOSTED_SCANNER
+                if record.type == models.ScanRecordType.ONDEMAND
+                else models.WebhookEvent.HOSTED_MONITORING,
                 account=account_secret,
                 data={
                     "hostname": record.hostname,
@@ -282,9 +267,10 @@ def handler(event, context):
                     "type": record.type.value,
                     'status': "result",
                     'account': record.account_name,
-                    'queued_timestamp': datetime.utcnow().timestamp() * 1000,
+                    'queued_timestamp': datetime.now(timezone.utc).timestamp()
+                    * 1000,
                     'result': data,
-                }
+                },
             )
             if data.get("tls"):
                 internals.logger.info(
@@ -301,7 +287,9 @@ def handler(event, context):
                 certificates = process_certificates(data)
                 all_certificates = {**all_certificates, **certificates}
 
-        execution_duration_seconds = (datetime.utcnow() - run_start).total_seconds()
+        execution_duration_seconds = (
+            datetime.now(timezone.utc) - run_start
+        ).total_seconds()
         report = process_summary(list(all_certificates.values()), record, hosts, report_id, observed_at, execution_duration_seconds, sum(scores), all_results)
         full_report = models.FullReport(**report.dict())
         full_report.evaluations = all_evaluations
@@ -340,7 +328,6 @@ def handler(event, context):
                 )
                 if isinstance(res, dict) and res.get("errors"):
                     internals.logger.error(res.get("errors"))
-                    continue
 
         if account.notifications.monitor_completed and report.type == models.ScanRecordType.MONITORING:
             internals.logger.info("Emailing result")
@@ -366,7 +353,6 @@ def handler(event, context):
                 )
                 if isinstance(res, dict) and res.get("errors"):
                     internals.logger.error(res.get("errors"))
-                    continue
 
         internals.logger.info("Push result")
         pusher_client.trigger(full_report.account_name, 'trivial-scanner-status', {
@@ -390,7 +376,9 @@ def handler(event, context):
             "is_passive": full_report.is_passive,
         })
         services.webhook.send(
-            event_name=models.WebhookEvent.HOSTED_SCANNER if record.type == models.ScanRecordType.ONDEMAND else models.WebhookEvent.HOSTED_MONITORING,
+            event_name=models.WebhookEvent.HOSTED_SCANNER
+            if record.type == models.ScanRecordType.ONDEMAND
+            else models.WebhookEvent.HOSTED_MONITORING,
             account=account_secret,
             data={
                 "generator": full_report.generator,
@@ -400,15 +388,19 @@ def handler(event, context):
                 "is_passive": full_report.is_passive,
                 "status": "complete",
                 'account': record.account_name,
-                'queued_timestamp': datetime.utcnow().timestamp() * 1000,
+                'queued_timestamp': datetime.now(timezone.utc).timestamp()
+                * 1000,
                 "report_id": full_report.report_id,
                 "results_uri": full_report.results_uri,
-                "targets": [{
-                    "transport": {
-                        'hostname': h.transport.hostname,
-                        'port': h.transport.port,
+                "targets": [
+                    {
+                        "transport": {
+                            'hostname': h.transport.hostname,
+                            'port': h.transport.port,
+                        }
                     }
-                } for h in full_report.targets],
+                    for h in full_report.targets
+                ],
                 "execution_duration_seconds": execution_duration_seconds,
-            }
+            },
         )

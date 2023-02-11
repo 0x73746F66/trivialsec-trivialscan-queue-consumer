@@ -14,7 +14,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
 ]
 dependencies = [
-    "pydantic[email] == 1.9.2",
+    "pydantic == 1.9.2",
     "trivialscan == 0.5.11",
     "sendgrid == 6.9.7",
     "pusher == 3.3.0",
@@ -42,3 +42,6 @@ disable = [
 
 [tool.pylint.'MESSAGES CONTROL']
 extension-pkg-whitelist = "pydantic"
+
+[project.scripts]
+run = "run:run"

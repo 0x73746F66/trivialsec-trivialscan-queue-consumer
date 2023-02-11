@@ -2,7 +2,7 @@ import sys
 import json
 import logging
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
 from os import getenv
 from pathlib import Path
 from uuid import uuid4
@@ -16,7 +16,7 @@ AWS_ACCOUNT = getenv("AWS_ACCOUNT", "984310022655")
 AWS_REGION = getenv("AWS_REGION", "ap-southeast-2")
 
 def cli():
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     invoke_payload = Path(f".{internals.BUILD_ENV}/invoke-payload.json")
     event = json.loads(invoke_payload.read_text(encoding="utf8"))
     context = {
@@ -33,7 +33,7 @@ def cli():
     app.handler(event, context)
 
 
-if __name__ == "__main__":
+def run():
     parser = argparse.ArgumentParser()
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
@@ -83,3 +83,7 @@ if __name__ == "__main__":
         )
     internals.logger.setLevel(LOG_LEVEL)
     cli()
+
+
+if __name__ == "__main__":
+    run()

@@ -1,7 +1,7 @@
 import json
 import hmac
 import hashlib
-from datetime import datetime
+from datetime import timezone, datetime
 
 import validators
 
@@ -42,10 +42,12 @@ def _sign_and_send(
         return f'HMAC id="{id}", mac="{mac}", ts="{ts}", alg="{alg}"'
 
     payload = models.WebhookPayload(
-        event_name=event_name, timestamp=datetime.utcnow(), payload=data
+        event_name=event_name,
+        timestamp=datetime.now(timezone.utc),
+        payload=data,
     )
     raw_body = json.dumps(payload.dict(), cls=internals.JSONEncoder)
-    unix_ts = round(datetime.utcnow().timestamp() * 1000)
+    unix_ts = round(datetime.now(timezone.utc).timestamp() * 1000)
     client_mac = internals.HMAC(
         authorization_header=_make_header(client_id, "na", unix_ts),
         request_url=str(webhook.endpoint),
