@@ -41,7 +41,7 @@ resource "aws_lambda_event_source_mapping" "trivialscan_queue_consumer_source" {
   batch_size       = local.queue_batch_size
 }
 
-resource "aws_cloudwatch_log_group" "trivialscan_logs" {
+resource "aws_cloudwatch_log_group" "queue_consumer_logs" {
   skip_destroy      = var.app_env == "Prod"
   name              = "/aws/lambda/${aws_lambda_function.trivialscan_queue_consumer.function_name}"
   retention_in_days = local.retention_in_days

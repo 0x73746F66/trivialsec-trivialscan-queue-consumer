@@ -4,8 +4,6 @@ locals {
     python_version        = "python3.9"
     source_file           = "${lower(var.app_env)}-${var.app_name}.zip"
     function_name         = "${lower(var.app_env)}-trivialscan-queue-consumer"
-    timeout               = 300
-    memory_size           = 512
     queue_batch_size      = 1
     tags                  = {
         ProjectName = "trivialscan"
@@ -14,4 +12,7 @@ locals {
         SecurityTags = "customer-data"
         AutomationTool = "Terraform"
     }
+    timeout               = 300
+    memory_size           = 512
+    retention_in_days     = var.app_env == "Prod" ? 30 : 7
 }
