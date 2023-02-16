@@ -299,6 +299,8 @@ def handler(event, context):
             )
 
         internals.logger.info(f"SUCCESS {report.report_id}")
+        if record.type == models.ScanRecordType.INTERNAL:
+            continue
         scanner_record.load()
         scanner_record.history.append(report)
         if not scanner_record.save():
@@ -353,54 +355,54 @@ def handler(event, context):
                 )
                 if isinstance(res, dict) and res.get("errors"):
                     internals.logger.error(res.get("errors"))
-
-        internals.logger.info("Push result")
-        pusher_client.trigger(full_report.account_name, 'trivial-scanner-status', {
-            "status": "Complete",
-            "generator": full_report.generator,
-            "version": full_report.version,
-            "report_id": full_report.report_id,
-            "execution_duration_seconds": execution_duration_seconds,
-            "targets": [{
-                "transport": {
-                    'hostname': h.transport.hostname,
-                    'port': h.transport.port,
-                }
-            } for h in full_report.targets],
-            "date": full_report.date,
-            "results": full_report.results,
-            "certificates": [cert.sha1_fingerprint for cert in full_report.certificates],
-            "results_uri": full_report.results_uri,
-            "type": full_report.type,
-            "category": full_report.category,
-            "is_passive": full_report.is_passive,
-        })
-        services.webhook.send(
-            event_name=models.WebhookEvent.HOSTED_SCANNER
-            if record.type == models.ScanRecordType.ONDEMAND
-            else models.WebhookEvent.HOSTED_MONITORING,
-            account=account_secret,
-            data={
+        if record.type != models.ScanRecordType.INTERNAL:
+            internals.logger.info("Push result")
+            pusher_client.trigger(full_report.account_name, 'trivial-scanner-status', {
+                "status": "Complete",
                 "generator": full_report.generator,
                 "version": full_report.version,
-                "type": record.type.value,
+                "report_id": full_report.report_id,
+                "execution_duration_seconds": execution_duration_seconds,
+                "targets": [{
+                    "transport": {
+                        'hostname': h.transport.hostname,
+                        'port': h.transport.port,
+                    }
+                } for h in full_report.targets],
+                "date": full_report.date,
+                "results": full_report.results,
+                "certificates": [cert.sha1_fingerprint for cert in full_report.certificates],
+                "results_uri": full_report.results_uri,
+                "type": full_report.type,
                 "category": full_report.category,
                 "is_passive": full_report.is_passive,
-                "status": "complete",
-                'account': record.account_name,
-                'queued_timestamp': datetime.now(timezone.utc).timestamp()
-                * 1000,
-                "report_id": full_report.report_id,
-                "results_uri": full_report.results_uri,
-                "targets": [
-                    {
-                        "transport": {
-                            'hostname': h.transport.hostname,
-                            'port': h.transport.port,
+            })
+            services.webhook.send(
+                event_name=models.WebhookEvent.HOSTED_SCANNER
+                if record.type == models.ScanRecordType.ONDEMAND
+                else models.WebhookEvent.HOSTED_MONITORING,
+                account=account_secret,
+                data={
+                    "generator": full_report.generator,
+                    "version": full_report.version,
+                    "type": record.type.value,
+                    "category": full_report.category,
+                    "is_passive": full_report.is_passive,
+                    "status": "complete",
+                    'account': record.account_name,
+                    'queued_timestamp': datetime.now(timezone.utc).timestamp()
+                    * 1000,
+                    "report_id": full_report.report_id,
+                    "results_uri": full_report.results_uri,
+                    "targets": [
+                        {
+                            "transport": {
+                                'hostname': h.transport.hostname,
+                                'port': h.transport.port,
+                            }
                         }
-                    }
-                    for h in full_report.targets
-                ],
-                "execution_duration_seconds": execution_duration_seconds,
-            },
-        )
+                        for h in full_report.targets
+                    ],
+                    "execution_duration_seconds": execution_duration_seconds,
+                },
+            )
