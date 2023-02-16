@@ -15,6 +15,7 @@ from ipaddress import (
     IPv4Address,
     IPv6Address,
 )
+from uuid import UUID
 
 import boto3
 import requests
@@ -237,6 +238,7 @@ class JSONEncoder(json.JSONEncoder):
                 AnyHttpUrl,
                 IPv4Address,
                 IPv6Address,
+                UUID,
             ),
         ):
             return str(o)
