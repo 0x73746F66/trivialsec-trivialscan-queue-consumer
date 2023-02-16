@@ -941,9 +941,11 @@ class ReferenceItem(BaseModel):
 
 
 class ScanRecordType(str, Enum):
+    INTERNAL = "Internal"
     MONITORING = "Managed Monitoring"
     ONDEMAND = "Managed On-demand"
     SELF_MANAGED = "Customer-managed"
+    SUBDOMAINS = "Subdomains"
 
 
 class ScanRecordCategory(str, Enum):
