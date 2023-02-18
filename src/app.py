@@ -192,9 +192,9 @@ def handler(event, context):
             continue
         account = models.MemberAccountRedacted(**account_secret.dict())
 
-        scanner_record = models.ScannerRecord(account=account)  # type: ignore
+        scanner_record = models.ScannerRecord(account_name=account.name)  # type: ignore
         if not scanner_record.load():
-            scanner_record = models.ScannerRecord(account=account)
+            scanner_record = models.ScannerRecord(account_name=account.name)
             scanner_record.save()
 
         report_id = token_urlsafe(32)
