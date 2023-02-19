@@ -63,6 +63,19 @@ data "aws_iam_policy_document" "trivialscan_queue_consumer_iam_policy" {
       data.terraform_remote_state.trivialscan_sqs.outputs.reconnaissance_queue_arn
     ]
   }
+  statement {
+    sid = "${var.app_env}QueueConsumerDynamoDB"
+    actions   = [
+      "dynamodb:PutItem",
+      "dynamodb:GetItem",
+      "dynamodb:DeleteItem"
+    ]
+    resources = [
+      "arn:aws:dynamodb:${local.aws_default_region}:${local.aws_master_account_id}:table/${var.app_env}_report_history",
+      "arn:aws:dynamodb:${local.aws_default_region}:${local.aws_master_account_id}:table/${var.app_env}_observed_identifiers",
+      "arn:aws:dynamodb:${local.aws_default_region}:${local.aws_master_account_id}:table/${var.app_env}_early_warning_service",
+    ]
+  }
 }
 resource "aws_iam_role" "trivialscan_queue_consumer_role" {
   name               = "${lower(var.app_env)}_trivialscan_queue_consumer_lambda_role"
