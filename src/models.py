@@ -8,7 +8,6 @@ from datetime import datetime, timezone
 from uuid import UUID
 from ipaddress import IPv4Address, IPv6Address, IPv4Network, IPv6Network
 
-import boto3
 import validators
 from pydantic import (
     BaseModel,
@@ -20,6 +19,7 @@ from pydantic import (
     PositiveFloat,
     IPvAnyAddress,
 )
+from boto3.dynamodb.conditions import Key
 
 import internals
 import services.aws
@@ -83,6 +83,98 @@ class ReportType(str, Enum):
     CERTIFICATE = "certificate"
     REPORT = "report"
     EVALUATIONS = "evaluations"
+
+
+class ReferenceType(str, Enum):
+    WEBSITE = "website"
+    JSON = "json"
+
+
+class ComplianceName(str, Enum):
+    PCI_DSS = "PCI DSS"
+    NIST_SP800_131A = "NIST SP800-131A"
+    FIPS_140_2 = "FIPS 140-2"
+
+
+class ThreatIntelSource(str, Enum):
+    CHARLES_HALEY = "CharlesHaley"
+    DATAPLANE = "DataPlane"
+    TALOS_INTELLIGENCE = "TalosIntelligence"
+    DARKLIST = "Darklist"
+
+
+class MfaSetting(str, Enum):
+    ENROLL = "enroll"
+    OPT_OUT = "opt_out"
+    TOTP = "totp"
+    WEBAUTHN = "webauthn"
+
+
+class ScanRecordType(str, Enum):
+    INTERNAL = "Internal"
+    MONITORING = "Managed Monitoring"
+    ONDEMAND = "Managed On-demand"
+    SELF_MANAGED = "Customer-managed"
+    SUBDOMAINS = "Subdomains"
+
+
+class ScanRecordCategory(str, Enum):
+    ASM = "Attack Surface Monitoring"
+    RECONNAISSANCE = "Reconnaissance"
+    OSINT = "Public Data Sources"
+    INTEGRATION_DATA = "Third Party Integration"
+
+
+class GraphLabelRanges(str, Enum):
+    WEEK = "week"
+    MONTH = "month"
+    YEAR = "year"
+
+
+class GraphLabel(str, Enum):
+    PCIDSS3 = "PCI DSS v3.2.1"
+    PCIDSS4 = "PCI DSS v4.0"
+    NISTSP800_131A_STRICT = "NIST SP800-131A (strict mode)"
+    NISTSP800_131A_TRANSITION = "NIST SP800-131A (transition mode)"
+    FIPS1402 = "FIPS 140-2 Annex A"
+
+
+class Quota(str, Enum):
+    USED = "used"
+    TOTAL = "total"
+    PERIOD = "period"
+
+
+class ObservedSource(str, Enum):
+    TRIVIAL_SCANNER = "Trivial Scanner"
+    OSINT = "Open Source Intelligence"
+
+
+class WebhookEvent(str, Enum):
+    HOSTED_MONITORING = "hosted_monitoring"
+    HOSTED_SCANNER = "hosted_scanner"
+    SELF_HOSTED_UPLOADS = "self_hosted_uploads"
+    EARLY_WARNING_EMAIL = "early_warning_email"
+    EARLY_WARNING_DOMAIN = "early_warning_domain"
+    EARLY_WARNING_IP = "early_warning_ip"
+    NEW_FINDINGS_CERTIFICATES = "new_findings_certificates"
+    NEW_FINDINGS_DOMAINS = "new_findings_domains"
+    INCLUDE_WARNING = "include_warning"
+    INCLUDE_INFO = "include_info"
+    CLIENT_STATUS = "client_status"
+    CLIENT_ACTIVITY = "client_activity"
+    SCANNER_CONFIGURATIONS = "scanner_configurations"
+    REPORT_CREATED = "report_created"
+    REPORT_DELETED = "report_deleted"
+    ACCOUNT_ACTIVITY = "account_activity"
+    MEMBER_ACTIVITY = "member_activity"
+
+
+class DataPlaneCategory(str, Enum):
+    SSH_CLIENT = 'sshclient'
+    SSH_PW_AUTH = 'sshpwauth'
+    DNS_RECURSIVE_QUERIES = 'dnsrd'
+    VNC_REMOTE_FRAME_BUFFER = 'vncrfb'
 
 
 class AccountRegistration(BaseModel):
@@ -155,7 +247,7 @@ class Webauthn(BaseModel):
 
     @validator("created_at")
     def set_created_at(cls, created_at: datetime):
-        return created_at.replace(tzinfo=timezone.utc) if created_at else None
+        return created_at.replace(tzinfo=timezone.utc)
 
 
 class Totp(BaseModel):
@@ -171,14 +263,7 @@ class Totp(BaseModel):
 
     @validator("created_at")
     def set_created_at(cls, created_at: datetime):
-        return created_at.replace(tzinfo=timezone.utc) if created_at else None
-
-
-class MfaSetting(str, Enum):
-    ENROLL = "enroll"
-    OPT_OUT = "opt_out"
-    TOTP = "totp"
-    WEBAUTHN = "webauthn"
+        return created_at.replace(tzinfo=timezone.utc)
 
 
 class MemberAccount(AccountRegistration, DAL):
@@ -195,16 +280,24 @@ class MemberAccount(AccountRegistration, DAL):
     )
     webhooks: Optional[list[Webhooks]] = Field(default=[])
 
-    def exists(self, account_name: Union[str, None] = None) -> bool:
-        return self.load(account_name)
+    def exists(
+        self,
+        account_name: Union[str, None] = None,
+        billing_client_id: Union[str, None] = None,
+    ) -> bool:
+        return self.load(account_name, billing_client_id)
 
     def load(
-        self, account_name: Union[str, None] = None
+        self,
+        account_name: Union[str, None] = None,
+        billing_client_id: Union[str, None] = None,
     ) -> bool:
         if account_name:
             self.name = account_name
         if not self.name:
             return False
+        if billing_client_id:
+            self.billing_client_id = billing_client_id
         object_key = f"{internals.APP_ENV}/accounts/{self.name}/registration.json"
         raw = services.aws.get_s3(path_key=object_key)
         if not raw:
@@ -216,7 +309,8 @@ class MemberAccount(AccountRegistration, DAL):
             internals.logger.debug(err, exc_info=True)
             return False
         if not data or not isinstance(data, dict):
-            internals.logger.warning(f"Missing account data for object: {object_key}")
+            internals.logger.warning(
+                f"Missing account data for object: {object_key}")
             return False
         super().__init__(**data)
         return True
@@ -262,9 +356,7 @@ class MemberProfile(BaseModel):
     def exists(self, member_email: Union[str, None] = None) -> bool:
         return self.load(member_email)
 
-    def load(
-        self, member_email: Union[str, None] = None
-    ) -> bool:
+    def load(self, member_email: Union[str, None] = None) -> bool:
         if member_email:
             self.email = member_email
         if validators.email(self.email) is False:  # type: ignore
@@ -293,7 +385,8 @@ class MemberProfile(BaseModel):
             internals.logger.debug(err, exc_info=True)
             return False
         if not data or not isinstance(data, dict):
-            internals.logger.warning(f"Missing member data for: {member_email}")
+            internals.logger.warning(
+                f"Missing member data for: {member_email}")
             return False
 
         super().__init__(**data)
@@ -308,7 +401,9 @@ class MemberProfile(BaseModel):
         )
 
     def delete(self) -> bool:
-        prefix_key = f"{internals.APP_ENV}/accounts/{self.account_name}/members/{self.email}/"
+        prefix_key = (
+            f"{internals.APP_ENV}/accounts/{self.account_name}/members/{self.email}/"
+        )
         prefix_matches = services.aws.list_s3(prefix_key=prefix_key)
         if len(prefix_matches) == 0:
             return True
@@ -325,10 +420,6 @@ class MemberProfileRedacted(MemberProfile):
     @validator("confirmation_token")
     def set_confirmation_token(cls, _):
         return None
-
-
-class MemberProfileForList(MemberProfileRedacted):
-    current: Optional[bool] = Field(default=False)
 
 
 class ClientInfo(BaseModel):
@@ -377,7 +468,8 @@ class Client(BaseModel, DAL):
             internals.logger.debug(err, exc_info=True)
             return
         if not data or not isinstance(data, dict):
-            internals.logger.warning(f"Missing account data for object: {object_key}")
+            internals.logger.warning(
+                f"Missing account data for object: {object_key}")
             return
         super().__init__(**data)
         return self
@@ -395,11 +487,8 @@ class Client(BaseModel, DAL):
         return services.aws.delete_s3(object_key)
 
 
-class MagicLinkRequest(BaseModel):
+class MagicLink(BaseModel, DAL):
     email: str
-
-
-class MagicLink(MagicLinkRequest, DAL):
     magic_token: str
     ip_addr: Optional[IPvAnyAddress]
     user_agent: Optional[str]
@@ -466,47 +555,23 @@ class MemberSession(BaseModel, DAL):
             self.member_email = member_email
         if session_token:
             self.session_token = session_token
-        if not self.session_token or validators.email(self.member_email) is False:  # type: ignore
+        # type: ignore
+        if not self.session_token or validators.email(self.member_email) is False:
             return False
-        member = MemberProfile(email=self.member_email)
-        if not member.load():
+        response = services.aws.get_dynamodb(table_name=services.aws.Tables.LOGIN_SESSIONS, item_key={
+                                             'session_token': self.session_token})
+        if not response:
+            internals.logger.warning(
+                f"Missing session data for session_token: {self.session_token}")
             return False
-        account = MemberAccount(name=member.account_name)  # type: ignore
-        if not account.load():
-            return False
-        object_key = f"{internals.APP_ENV}/accounts/{account.name}/members/{self.member_email}/sessions/{self.session_token}.json"
-        raw = services.aws.get_s3(path_key=object_key)
-        if not raw:
-            internals.logger.warning(f"Missing session object: {object_key}")
-            return False
-        try:
-            data = json.loads(raw)
-        except json.decoder.JSONDecodeError as err:
-            internals.logger.debug(err, exc_info=True)
-            return False
-        if not data or not isinstance(data, dict):
-            internals.logger.warning(f"Missing session data for object: {object_key}")
-            return False
-        super().__init__(**data)
+        super().__init__(**response)
         return True
 
     def save(self) -> bool:
-        member = MemberProfile(email=self.member_email)
-        if not member.load():
-            return False
-        object_key = f"{internals.APP_ENV}/accounts/{member.account_name}/members/{self.member_email}/sessions/{self.session_token}.json"
-        return services.aws.store_s3(
-            object_key,
-            json.dumps(self.dict(), default=str),
-            storage_class=services.aws.StorageClass.ONEZONE_IA,
-        )
+        return services.aws.put_dynamodb(table_name=services.aws.Tables.LOGIN_SESSIONS, item=self.dict())
 
     def delete(self) -> bool:
-        member = MemberProfile(email=self.member_email)
-        if not member.load():
-            return False
-        object_key = f"{internals.APP_ENV}/accounts/{member.account_name}/members/{self.member_email}/sessions/{self.session_token}.json"
-        return services.aws.delete_s3(object_key)
+        return services.aws.delete_dynamodb(table_name=services.aws.Tables.LOGIN_SESSIONS, item_key={'session_token': self.session_token})
 
 
 class MemberSessionRedacted(MemberSession):
@@ -516,11 +581,6 @@ class MemberSessionRedacted(MemberSession):
     @validator("access_token")
     def set_access_token(cls, _):
         return None
-
-
-class MemberSessionForList(MemberSessionRedacted):
-    current: Optional[bool] = Field(default=False)
-
 
 class CheckToken(BaseModel):
     version: Optional[str]
@@ -608,7 +668,8 @@ class Support(SupportRequest, DAL):
 
 class DefaultInfo(BaseModel):
     generator: str = Field(default="trivialscan")
-    version: Optional[str] = Field(default=None, description="trivialscan CLI version")
+    version: Optional[str] = Field(
+        default=None, description="trivialscan CLI version")
     account_name: Optional[str] = Field(
         default=None, description="Trivial Security account name"
     )
@@ -639,12 +700,12 @@ class ConfigTarget(BaseModel):
     http_request_paths: list[str] = Field(default=["/"])
 
 
-class Config(BaseModel):
+class CLIConfig(BaseModel):
     account_name: Optional[str] = Field(
         default=None, description="Trivial Security account name"
     )
     client_name: Optional[str] = Field(
-        default=None, description="Machine name where trivialscan CLI executes"
+        default=None, description="Machine name where trivialscan CLI execcutes"
     )
     project_name: Optional[str] = Field(
         default=None, description="Trivial Scanner project assignment for the report"
@@ -716,24 +777,20 @@ class HostTransport(BaseModel):
     certificate_mtls_expected: Optional[bool] = Field(default=False)
 
 
-class ThreatIntelSource(str, Enum):
-    CHARLES_HALEY = "CharlesHaley"
-    DATAPLANE = "DataPlane"
-    TALOS_INTELLIGENCE = "TalosIntelligence"
-    DARKLIST = "Darklist"
-
-
 class ThreatIntel(BaseModel):
+    id: UUID
+    account_name: str
     source: ThreatIntelSource
     feed_identifier: Any
     feed_date: datetime
+    feed_data: Any
 
     class Config:
         validate_assignment = True
 
     @validator("feed_date")
     def set_feed_date(cls, feed_date: datetime):
-        return feed_date.replace(tzinfo=timezone.utc) if feed_date else None
+        return feed_date.replace(tzinfo=timezone.utc)
 
 
 class Host(BaseModel, DAL):
@@ -770,7 +827,8 @@ class Host(BaseModel, DAL):
         if last_updated:
             self.last_updated = last_updated
         if hostname:
-            self.transport = HostTransport(hostname=hostname, port=port, peer_address=peer_address)  # type: ignore
+            self.transport = HostTransport(
+                hostname=hostname, port=port, peer_address=peer_address)  # type: ignore
 
         prefix_key = (
             f"{internals.APP_ENV}/hosts/{self.transport.hostname}/{self.transport.port}"
@@ -815,7 +873,8 @@ class Certificate(BaseModel, DAL):
     expired: Optional[bool]
     expiry_status: Optional[str]
     extensions: Optional[list] = Field(default=[])
-    external_refs: Optional[dict[str, Optional[AnyHttpUrl]]] = Field(default={})
+    external_refs: Optional[dict[str, Optional[AnyHttpUrl]]] = Field(default={
+    })
     is_self_signed: Optional[bool]
     issuer: Optional[str]
     known_compromised: Optional[bool]
@@ -857,9 +916,7 @@ class Certificate(BaseModel, DAL):
     def exists(self, sha1_fingerprint: Union[str, None] = None) -> bool:
         return self.load(sha1_fingerprint)
 
-    def load(
-        self, sha1_fingerprint: Union[str, None] = None
-    ) -> bool:
+    def load(self, sha1_fingerprint: Union[str, None] = None) -> bool:
         if sha1_fingerprint:
             self.sha1_fingerprint = sha1_fingerprint
 
@@ -894,12 +951,6 @@ class ComplianceItem(BaseModel):
     description: Optional[str]
 
 
-class ComplianceName(str, Enum):
-    PCI_DSS = "PCI DSS"
-    NIST_SP800_131A = "NIST SP800-131A"
-    FIPS_140_2 = "FIPS 140-2"
-
-
 class ComplianceGroup(BaseModel):
     compliance: Optional[ComplianceName]
     version: Optional[str]
@@ -931,33 +982,15 @@ class ThreatItem(BaseModel):
     data_source_description: Optional[str]
 
 
-class ReferenceType(str, Enum):
-    WEBSITE = "website"
-    JSON = "json"
-
-
 class ReferenceItem(BaseModel):
     name: str
     url: AnyHttpUrl
     type: Optional[ReferenceType] = Field(default=ReferenceType.WEBSITE)
 
 
-class ScanRecordType(str, Enum):
-    INTERNAL = "Internal"
-    MONITORING = "Managed Monitoring"
-    ONDEMAND = "Managed On-demand"
-    SELF_MANAGED = "Customer-managed"
-    SUBDOMAINS = "Subdomains"
-
-
-class ScanRecordCategory(str, Enum):
-    ASM = "Attack Surface Monitoring"
-    RECONNAISSANCE = "Reconnaissance"
-    OSINT = "Public Data Sources"
-    INTEGRATION_DATA = "Third Party Integration"
-
-
 class ReportSummary(DefaultInfo):
+    class Config:
+        validate_assignment = True
     report_id: str
     project_name: Optional[str]
     targets: list[Host] = Field(default=[])
@@ -968,14 +1001,11 @@ class ReportSummary(DefaultInfo):
     certificates: Optional[list[Certificate]] = Field(default=[])
     results_uri: Optional[str]
     flags: Optional[Flags]
-    config: Optional[Config]
+    config: Optional[CLIConfig]
     client: Optional[ClientInfo]
     type: Optional[ScanRecordType]
     category: Optional[ScanRecordCategory]
     is_passive: Optional[bool] = Field(default=True)
-
-    class Config:
-        validate_assignment = True
 
     @validator("date")
     def set_date(cls, date: datetime):
@@ -1069,18 +1099,6 @@ class FullReport(ReportSummary, DAL):
         return services.aws.delete_s3(object_key)
 
 
-class EmailEditRequest(BaseModel):
-    email: str
-
-
-class NameEditRequest(BaseModel):
-    name: str
-
-
-class MemberInvitationRequest(BaseModel):
-    email: str
-
-
 class AcceptEdit(BaseModel, DAL):
     account: Optional[MemberAccountRedacted]
     requester: Optional[MemberProfileRedacted]
@@ -1127,38 +1145,6 @@ class AcceptEdit(BaseModel, DAL):
         return services.aws.delete_s3(object_key)
 
 
-class GraphLabelRanges(str, Enum):
-    WEEK = "week"
-    MONTH = "month"
-    YEAR = "year"
-
-
-class GraphLabel(str, Enum):
-    PCIDSS3 = "PCI DSS v3.2.1"
-    PCIDSS4 = "PCI DSS v4.0"
-    NISTSP800_131A_STRICT = "NIST SP800-131A (strict mode)"
-    NISTSP800_131A_TRANSITION = "NIST SP800-131A (transition mode)"
-    FIPS1402 = "FIPS 140-2 Annex A"
-
-
-class ComplianceChartItem(BaseModel):
-    name: str
-    num: int
-    timestamp: int
-
-
-class DashboardCompliance(BaseModel):
-    label: GraphLabel
-    ranges: list[GraphLabelRanges]
-    data: dict[GraphLabelRanges, list[ComplianceChartItem]]
-
-
-class Quota(str, Enum):
-    USED = "used"
-    TOTAL = "total"
-    PERIOD = "period"
-
-
 class AccountQuotas(BaseModel):
     unlimited_monitoring: bool
     unlimited_scans: bool
@@ -1189,12 +1175,9 @@ class MonitorHostname(BaseModel):
     path_names: Optional[list[str]] = Field(default=["/"])
 
 
-class ObservedSource(str, Enum):
-    TRIVIAL_SCANNER = 'Trivial Scanner'
-    OSINT = 'Open Source Intelligence'
-
-
 class ObservedIdentifier(BaseModel):
+    id: UUID
+    account_name: str
     source: ObservedSource
     source_data: Any
     address: Union[IPv4Address, IPv6Address, IPv4Network, IPv6Network]
@@ -1219,7 +1202,13 @@ class ScannerRecord(BaseModel, DAL):
             self.account_name = account_name
         return services.aws.object_exists(self.object_key) is True
 
-    def load(self, account_name: Union[str, None] = None) -> bool:
+    def load(
+        self,
+        account_name: Union[str, None] = None,
+        load_history: bool = False,
+        load_ews: bool = False,
+        load_identifiers: bool = False,
+    ) -> bool:
         if account_name:
             self.account_name = account_name
         raw = services.aws.get_s3(path_key=self.object_key)
@@ -1235,68 +1224,66 @@ class ScannerRecord(BaseModel, DAL):
             internals.logger.warning(f"Missing Queue {self.object_key}")
             return False
         super().__init__(**data)
-        dynamodb = boto3.resource('dynamodb')
-        report_history = dynamodb.Table(f'{internals.APP_ENV}_report_history')
-        self.history = [ReportSummary(**item) for item in report_history.query(
-            KeyConditionExpression='account_name = :account_name',
-            ExpressionAttributeValues={
-                ':account_name': {'S': self.account_name}
-            }
-        ).get("items", [])]
+        if load_history:
+            self.history = [ReportSummary(**services.aws.get_dynamodb(  # type: ignore
+                table_name=services.aws.Tables.REPORT_HISTORY,
+                item_key={'report_id': item['report_id']}
+            )) for item in services.aws.query_dynamodb(
+                table_name=services.aws.Tables.REPORT_HISTORY,
+                IndexName='account_name-index',
+                KeyConditionExpression=Key(
+                    'account_name').eq(self.account_name)
+            )]
+        if load_ews:
+            self.ews = [ThreatIntel(**services.aws.get_dynamodb(  # type: ignore
+                table_name=services.aws.Tables.EARLY_WARNING_SERVICE,
+                item_key={'id': item['id']}
+            )) for item in services.aws.query_dynamodb(
+                table_name=services.aws.Tables.EARLY_WARNING_SERVICE,
+                IndexName='account_name-index',
+                KeyConditionExpression=Key(
+                    'account_name').eq(self.account_name)
+            )]
+        if load_identifiers:
+            self.observed_identifiers = [ObservedIdentifier(**services.aws.get_dynamodb(  # type: ignore
+                table_name=services.aws.Tables.OBSERVED_IDENTIFIERS,
+                item_key={'id': item['id']}
+            )) for item in services.aws.query_dynamodb(
+                table_name=services.aws.Tables.OBSERVED_IDENTIFIERS,
+                IndexName='account_name-index',
+                KeyConditionExpression=Key(
+                    'account_name').eq(self.account_name)
+            )]
 
         return True
 
     def save(self) -> bool:
-        dynamodb = boto3.resource('dynamodb')
-        report_history = dynamodb.Table(f'{internals.APP_ENV}_report_history')
-        for item in self.history:
-            report_history.put_item(Item=item.dict())
+        for report in self.history:
+            services.aws.put_dynamodb(table_name=services.aws.Tables.REPORT_HISTORY, item=report.dict())
+        for ews in self.ews:
+            services.aws.put_dynamodb(table_name=services.aws.Tables.EARLY_WARNING_SERVICE, item=ews.dict())
+        for identifier in self.observed_identifiers:
+            services.aws.put_dynamodb(table_name=services.aws.Tables.OBSERVED_IDENTIFIERS, item=identifier.dict())
+        data = self.dict()
+        del data['history']
+        del data['ews']
+        del data['observed_identifiers']
         return services.aws.store_s3(
-            self.object_key, json.dumps(self.dict(), default=str)
+            self.object_key, json.dumps(data, default=str)
         )
 
     def delete(self) -> bool:
-        dynamodb = boto3.resource('dynamodb')
-        report_history = dynamodb.Table(f'{internals.APP_ENV}_report_history')
         for report in self.history:
-            report_history.delete_item(Key={'report_id': report.report_id})
+            services.aws.delete_dynamodb(table_name=services.aws.Tables.REPORT_HISTORY, item_key={
+                                         'report_id': report.report_id})
+        for ews in self.ews:
+            services.aws.delete_dynamodb(
+                table_name=services.aws.Tables.EARLY_WARNING_SERVICE, item_key={'id': ews.id})
+        for identifier in self.observed_identifiers:
+            services.aws.delete_dynamodb(
+                table_name=services.aws.Tables.OBSERVED_IDENTIFIERS, item_key={'id': identifier.id})
         return services.aws.delete_s3(self.object_key)
 
-
-class HostResponse(BaseModel):
-    host: Host
-    reports: list[ReportSummary]
-    versions: list[str]
-    external_refs: dict[str, Union[AnyHttpUrl, str]]
-
-
-class CertificateResponse(BaseModel):
-    certificate: Certificate
-    reports: list[ReportSummary]
-
-
-class WebhookEndpointRequest(BaseModel):
-    endpoint: AnyHttpUrl
-
-
-class WebhookEvent(str, Enum):
-    HOSTED_MONITORING = "hosted_monitoring"
-    HOSTED_SCANNER = "hosted_scanner"
-    SELF_HOSTED_UPLOADS = "self_hosted_uploads"
-    EARLY_WARNING_EMAIL = "early_warning_email"
-    EARLY_WARNING_DOMAIN = "early_warning_domain"
-    EARLY_WARNING_IP = "early_warning_ip"
-    NEW_FINDINGS_CERTIFICATES = "new_findings_certificates"
-    NEW_FINDINGS_DOMAINS = "new_findings_domains"
-    INCLUDE_WARNING = "include_warning"
-    INCLUDE_INFO = "include_info"
-    CLIENT_STATUS = "client_status"
-    CLIENT_ACTIVITY = "client_activity"
-    SCANNER_CONFIGURATIONS = "scanner_configurations"
-    REPORT_CREATED = "report_created"
-    REPORT_DELETED = "report_deleted"
-    ACCOUNT_ACTIVITY = "account_activity"
-    MEMBER_ACTIVITY = "member_activity"
 
 
 class WebhookPayload(BaseModel):
@@ -1313,20 +1300,88 @@ class WebhookPayload(BaseModel):
         return timestamp.replace(tzinfo=timezone.utc) if timestamp else None
 
 
-class ConfigUpdateRequest(BaseModel):
-    hostname: str
-    enabled: Optional[bool]
-    http_paths: Optional[list[str]]
-    ports: Optional[list[PositiveInt]]
+class CharlesHaley(BaseModel):
+    ip_address: Union[IPv4Address, IPv6Address]
+    last_seen: datetime
+    category: str
 
 
-class MyProfile(BaseModel):
-    session: MemberSessionRedacted
-    member: MemberProfileRedacted
-    account: MemberAccountRedacted
+class DataPlane(BaseModel):
+    asn: Optional[int]
+    asn_text: Optional[str]
+    ip_address: Union[IPv4Address, IPv6Address]
+    last_seen: datetime
+    category: DataPlaneCategory
 
 
-class LoginResponse(BaseModel):
-    session: MemberSession
-    member: MemberProfileRedacted
-    account: MemberAccountRedacted
+class TalosIntelligence(BaseModel):
+    ip_address: Optional[Union[IPv4Address, IPv6Address]]
+    cidr: Optional[IPv4Network]
+    last_seen: datetime
+    category: str
+
+
+class Darklist(BaseModel):
+    ip_address: Optional[Union[IPv4Address, IPv6Address]]
+    cidr: Optional[IPv4Network]
+    last_seen: datetime
+    category: str
+
+
+class FeedConfig(BaseModel):
+    source: str
+    name: str
+    description: str
+    url: AnyHttpUrl
+    alert_title: str
+    abuse: Optional[str]
+    disabled: bool
+
+
+class FeedStateItem(BaseModel):
+    key: str
+    data: Optional[Any]
+    data_model: Optional[str]
+    first_seen: datetime
+    current: bool
+    entrances: list[datetime]
+    exits: list[datetime]
+
+
+class FeedState(BaseModel):
+    source: str
+    feed_name: str
+    url: Optional[AnyHttpUrl]
+    records: Optional[dict[str, FeedStateItem]]
+    last_checked: Optional[datetime]
+
+    @property
+    def object_key(self):
+        return f"{internals.APP_ENV}/feeds/{self.source}/{self.feed_name}/state.json"
+
+    def exit(self, record: str) -> FeedStateItem:
+        if item := self.records.get(record):
+            item.current = False
+            item.exits.append(datetime.utcnow())
+            self.records[record] = item
+
+    def load(self) -> "FeedState":
+        raw = services.aws.get_s3(path_key=self.object_key)
+        if not raw:
+            internals.logger.warning(f"Missing state {self.object_key}")
+            return
+        try:
+            data = json.loads(raw)
+        except json.decoder.JSONDecodeError as err:
+            internals.logger.debug(err, exc_info=True)
+            return
+        if not data or not isinstance(data, dict):
+            internals.logger.warning(f"Missing state {self.object_key}")
+            return
+        super().__init__(**data)
+        return self
+
+    def save(self) -> bool:
+        return services.aws.store_s3(
+            self.object_key, json.dumps(self.dict(), default=str)
+        )

@@ -1,5 +1,6 @@
 import json
 from copy import deepcopy
+from uuid import uuid5
 from datetime import datetime, timezone
 from secrets import token_urlsafe
 from typing import Optional
@@ -8,6 +9,7 @@ from pusher import Pusher
 from trivialscan import trivialscan
 from trivialscan.cli.__main__ import __version__ as trivialscan_version
 from pydantic import BaseModel
+
 import internals
 import models
 import services.aws
@@ -191,12 +193,6 @@ def handler(event, context):
             internals.logger.info(f"Missing account {record.account_name}")
             continue
         account = models.MemberAccountRedacted(**account_secret.dict())
-
-        scanner_record = models.ScannerRecord(account_name=account.name)  # type: ignore
-        if not scanner_record.load():
-            scanner_record = models.ScannerRecord(account_name=account.name)
-            scanner_record.save()
-
         report_id = token_urlsafe(32)
         observed_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
         hosts = []
@@ -301,13 +297,31 @@ def handler(event, context):
         internals.logger.info(f"SUCCESS {report.report_id}")
         if record.type == models.ScanRecordType.INTERNAL:
             continue
-        scanner_record.load()
-        scanner_record.history.append(report)
-        if not scanner_record.save():
+        if not services.aws.put_dynamodb(table_name=services.aws.Tables.REPORT_HISTORY, item=report.dict()):
             internals.logger.error(
-                "ScannerRecord failed to delete target and save history, this will cause duplicate scanning issues"
+                "ReportSummary failed to save, this will cause duplicate scanning issues"
             )
             continue
+
+        for host in full_report.targets:
+            item = models.ObservedIdentifier(
+                id=uuid5(namespace=internals.NAMESPACE, name=f"{account.name}{host.transport.peer_address}"),
+                account_name=account.name,
+                source=models.ObservedSource.TRIVIAL_SCANNER,
+                source_data={
+                    'hostname': host.transport.hostname,
+                    'report_id': report.report_id,
+                    'cli_version': report.version,
+                    'report_date': report.date,
+                },
+                address=host.transport.peer_address,
+                date=datetime.now(timezone.utc).timestamp() * 1000
+            )
+            services.aws.put_dynamodb(
+                table_name=services.aws.Tables.OBSERVED_IDENTIFIERS,
+                item=item.dict()
+            )
+
         if record.queued_by and account.notifications.scan_completed:
             internals.logger.info("Emailing result")
             sendgrid = services.sendgrid.send_email(

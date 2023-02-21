@@ -39,32 +39,32 @@ def run():
     group.add_argument(
         "-v",
         "--errors-only",
-        help="set logging level to ERROR (default CRITICAL)",
+        help="set logging level to ERROR (default INFO)",
         dest="log_level_error",
         action="store_true",
     )
     group.add_argument(
         "-vv",
         "--warning",
-        help="set logging level to WARNING (default CRITICAL)",
+        help="set logging level to WARNING (default INFO)",
         dest="log_level_warning",
         action="store_true",
     )
     group.add_argument(
         "-vvv",
         "--info",
-        help="set logging level to INFO (default CRITICAL)",
+        help="set logging level to INFO (default INFO)",
         dest="log_level_info",
         action="store_true",
     )
     group.add_argument(
         "-vvvv",
         "--debug",
-        help="set logging level to DEBUG (default CRITICAL)",
+        help="set logging level to DEBUG (default INFO)",
         dest="log_level_debug",
         action="store_true",
     )
-    LOG_LEVEL = logging.CRITICAL
+    LOG_LEVEL = logging.INFO
     if parser.parse_args().log_level_error:
         LOG_LEVEL = logging.ERROR
     if parser.parse_args().log_level_warning:
