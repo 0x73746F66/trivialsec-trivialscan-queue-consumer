@@ -208,12 +208,14 @@ def handler(event, context):
         }
         for port in record.ports:
             internals.logger.info(f"SCANNING {record.hostname}:{port}")
-            pusher_client.trigger(record.account_name, 'trivial-scanner-status', {
-                "status": "Started",
-                "type": record.type.value,
-                "hostname": record.hostname,
-                "port": port,
-            })
+            if record.type != models.ScanRecordType.INTERNAL:
+                internals.logger.info("Push: started")
+                pusher_client.trigger(record.account_name, 'trivial-scanner-status', {
+                    "status": "Started",
+                    "type": record.type.value,
+                    "hostname": record.hostname,
+                    "port": port,
+                })
             services.webhook.send(
                 event_name=models.WebhookEvent.HOSTED_SCANNER
                 if record.type == models.ScanRecordType.ONDEMAND
@@ -234,19 +236,21 @@ def handler(event, context):
                 port=port,
                 http_request_paths=record.path_names,
             )
-            pusher_client.trigger(
-                record.account_name,
-                'trivial-scanner-status',
-                {
-                    "status": "Processing Result",
-                    "type": record.type.value,
-                    "hostname": record.hostname,
-                    "port": port,
-                    "elapsed_duration_seconds": (
-                        datetime.now(timezone.utc) - run_start
-                    ).total_seconds(),
-                },
-            )
+            if record.type != models.ScanRecordType.INTERNAL:
+                internals.logger.info("Push: processing")
+                pusher_client.trigger(
+                    record.account_name,
+                    'trivial-scanner-status',
+                    {
+                        "status": "Processing Result",
+                        "type": record.type.value,
+                        "hostname": record.hostname,
+                        "port": port,
+                        "elapsed_duration_seconds": (
+                            datetime.now(timezone.utc) - run_start
+                        ).total_seconds(),
+                    },
+                )
             data = transport.store.to_dict()
             if "certificates" in data:
                 del data["certificates"]
@@ -370,7 +374,7 @@ def handler(event, context):
                 if isinstance(res, dict) and res.get("errors"):
                     internals.logger.error(res.get("errors"))
         if record.type != models.ScanRecordType.INTERNAL:
-            internals.logger.info("Push result")
+            internals.logger.info("Push: complete")
             pusher_client.trigger(full_report.account_name, 'trivial-scanner-status', {
                 "status": "Complete",
                 "generator": full_report.generator,
