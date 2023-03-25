@@ -206,10 +206,15 @@ def handler(event, context):
             "warn": 0,
             "fail": 0,
         }
+        send_push = True
+        if record.type == models.ScanRecordType.INTERNAL:
+            record.type = models.ScanRecordType.MANAGED
+            send_push = False
+
         for port in record.ports:
             internals.logger.info(f"SCANNING {record.hostname}:{port}")
-            if record.type != models.ScanRecordType.INTERNAL:
-                internals.logger.info("Push: started")
+            if send_push:
+                internals.logger.info(f"Push: started {record.hostname}:{port}")
                 pusher_client.trigger(record.account_name, 'trivial-scanner-status', {
                     "status": "Started",
                     "type": record.type.value,
@@ -236,8 +241,8 @@ def handler(event, context):
                 port=port,
                 http_request_paths=record.path_names,
             )
-            if record.type != models.ScanRecordType.INTERNAL:
-                internals.logger.info("Push: processing")
+            if send_push:
+                internals.logger.info(f"Push: processing {record.hostname}:{port}")
                 pusher_client.trigger(
                     record.account_name,
                     'trivial-scanner-status',
@@ -274,7 +279,7 @@ def handler(event, context):
             )
             if data.get("tls"):
                 internals.logger.info(
-                    f"Negotiated {transport.store.tls_state.negotiated_protocol} {transport.store.tls_state.peer_address}"
+                    f"{record.hostname}:{port} Negotiated {transport.store.tls_state.negotiated_protocol} {transport.store.tls_state.peer_address}"
                 )
                 scores.append(int(data.get('score', 0)))
                 all_results["pass"] += data.get('results', {}).get("pass", 0)
@@ -295,15 +300,14 @@ def handler(event, context):
         full_report.evaluations = all_evaluations
         if not full_report.save():
             internals.logger.error(
-                f"Storing FullReport {report.report_id}"
+                f"Storing FullReport {report.report_id} {record.hostname}"
             )
-
-        internals.logger.info(f"SUCCESS {report.report_id}")
-        if record.type == models.ScanRecordType.INTERNAL:
             continue
+
+        internals.logger.info(f"SUCCESS {report.report_id} {record.hostname}")
         if not services.aws.put_dynamodb(table_name=services.aws.Tables.REPORT_HISTORY, item=report.dict()):
             internals.logger.error(
-                "ReportSummary failed to save, this will cause duplicate scanning issues"
+                f"ReportSummary failed to save, this will cause duplicate scanning issues {report.report_id} {record.hostname}"
             )
             continue
 
@@ -327,7 +331,7 @@ def handler(event, context):
             )
 
         if record.queued_by and account.notifications.scan_completed:
-            internals.logger.info("Emailing result")
+            internals.logger.info(f"Emailing result {record.hostname}")
             sendgrid = services.sendgrid.send_email(
                 subject=f"On-demand scanning complete {record.hostname}",
                 recipient=record.queued_by,
@@ -350,7 +354,7 @@ def handler(event, context):
                     internals.logger.error(res.get("errors"))
 
         if account.notifications.monitor_completed and report.type == models.ScanRecordType.MONITORING:
-            internals.logger.info("Emailing result")
+            internals.logger.info(f"Emailing result {record.hostname}")
             email_subject = f"Monitoring scanner complete {record.hostname}"
             sendgrid = services.sendgrid.send_email(
                 subject=email_subject,
@@ -373,8 +377,8 @@ def handler(event, context):
                 )
                 if isinstance(res, dict) and res.get("errors"):
                     internals.logger.error(res.get("errors"))
-        if record.type != models.ScanRecordType.INTERNAL:
-            internals.logger.info("Push: complete")
+        if send_push:
+            internals.logger.info(f"Push: complete {record.hostname}")
             pusher_client.trigger(full_report.account_name, 'trivial-scanner-status', {
                 "status": "Complete",
                 "generator": full_report.generator,
@@ -395,32 +399,32 @@ def handler(event, context):
                 "category": full_report.category,
                 "is_passive": full_report.is_passive,
             })
-            services.webhook.send(
-                event_name=models.WebhookEvent.HOSTED_SCANNER
-                if record.type == models.ScanRecordType.ONDEMAND
-                else models.WebhookEvent.HOSTED_MONITORING,
-                account=account_secret,
-                data={
-                    "generator": full_report.generator,
-                    "version": full_report.version,
-                    "type": record.type.value,
-                    "category": full_report.category,
-                    "is_passive": full_report.is_passive,
-                    "status": "complete",
-                    'account': record.account_name,
-                    'queued_timestamp': datetime.now(timezone.utc).timestamp()
-                    * 1000,
-                    "report_id": full_report.report_id,
-                    "results_uri": full_report.results_uri,
-                    "targets": [
-                        {
-                            "transport": {
-                                'hostname': h.transport.hostname,
-                                'port': h.transport.port,
-                            }
+        services.webhook.send(
+            event_name=models.WebhookEvent.HOSTED_SCANNER
+            if record.type == models.ScanRecordType.ONDEMAND
+            else models.WebhookEvent.HOSTED_MONITORING,
+            account=account_secret,
+            data={
+                "generator": full_report.generator,
+                "version": full_report.version,
+                "type": record.type.value,
+                "category": full_report.category,
+                "is_passive": full_report.is_passive,
+                "status": "complete",
+                'account': record.account_name,
+                'queued_timestamp': datetime.now(timezone.utc).timestamp()
+                * 1000,
+                "report_id": full_report.report_id,
+                "results_uri": full_report.results_uri,
+                "targets": [
+                    {
+                        "transport": {
+                            'hostname': h.transport.hostname,
+                            'port': h.transport.port,
                         }
-                        for h in full_report.targets
-                    ],
-                    "execution_duration_seconds": execution_duration_seconds,
-                },
-            )
+                    }
+                    for h in full_report.targets
+                ],
+                "execution_duration_seconds": execution_duration_seconds,
+            },
+        )
