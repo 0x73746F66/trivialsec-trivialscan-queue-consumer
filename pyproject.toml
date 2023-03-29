@@ -15,7 +15,7 @@ classifiers = [
 ]
 dependencies = [
     "pydantic == 1.9.2",
-    "trivialscan >= 0.5.13",
+    "trivialscan >= 0.5.16",
     "sendgrid == 6.9.7",
     "pusher == 3.3.0",
     "requests",
