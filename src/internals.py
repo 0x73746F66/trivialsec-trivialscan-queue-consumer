@@ -8,7 +8,7 @@ import threading
 import json
 from typing import Union
 from base64 import b64encode
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from urllib.parse import urlparse
 from os import getenv
 from ipaddress import (
@@ -224,6 +224,8 @@ class HMAC:
 
 class JSONEncoder(json.JSONEncoder):
     def default(self, o):
+        if isinstance(o, date):
+            return o.isoformat()
         if isinstance(o, datetime):
             return o.replace(microsecond=0).isoformat()
         if isinstance(o, int) and o > 10^38-1:
