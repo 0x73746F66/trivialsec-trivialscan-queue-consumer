@@ -1,7 +1,7 @@
 data "aws_iam_policy_document" "trivialscan_queue_consumer_assume_role_policy" {
   statement {
-    sid = "${var.app_env}TrivialScannerQueueConsumerAssumeRole"
-    actions    = ["sts:AssumeRole"]
+    sid     = "${var.app_env}TrivialScannerQueueConsumerAssumeRole"
+    actions = ["sts:AssumeRole"]
     principals {
       type        = "Service"
       identifiers = ["lambda.amazonaws.com"]
@@ -11,7 +11,7 @@ data "aws_iam_policy_document" "trivialscan_queue_consumer_assume_role_policy" {
 data "aws_iam_policy_document" "trivialscan_queue_consumer_iam_policy" {
   statement {
     sid = "${var.app_env}TrivialScannerQueueConsumerLogging"
-    actions   = [
+    actions = [
       "logs:CreateLogGroup",
       "logs:CreateLogStream",
       "logs:PutLogEvents"
@@ -22,7 +22,7 @@ data "aws_iam_policy_document" "trivialscan_queue_consumer_iam_policy" {
   }
   statement {
     sid = "${var.app_env}TrivialScannerQueueConsumerObjList"
-    actions   = [
+    actions = [
       "s3:Head*",
       "s3:List*",
     ]
@@ -33,7 +33,7 @@ data "aws_iam_policy_document" "trivialscan_queue_consumer_iam_policy" {
   }
   statement {
     sid = "${var.app_env}TrivialScannerQueueConsumerObjAccess"
-    actions   = [
+    actions = [
       "s3:DeleteObject",
       "s3:GetObject",
       "s3:PutObject",
@@ -44,7 +44,7 @@ data "aws_iam_policy_document" "trivialscan_queue_consumer_iam_policy" {
   }
   statement {
     sid = "${var.app_env}TrivialScannerQueueConsumerSecrets"
-    actions   = [
+    actions = [
       "ssm:GetParameter",
     ]
     resources = [
@@ -53,7 +53,7 @@ data "aws_iam_policy_document" "trivialscan_queue_consumer_iam_policy" {
   }
   statement {
     sid = "${var.app_env}TrivialScannerQueueConsumerSQS"
-    actions   = [
+    actions = [
       "sqs:ReceiveMessage",
       "sqs:DeleteMessage",
       "sqs:ChangeMessageVisibility",
@@ -65,7 +65,7 @@ data "aws_iam_policy_document" "trivialscan_queue_consumer_iam_policy" {
   }
   statement {
     sid = "${var.app_env}QueueConsumerDynamoDB"
-    actions   = [
+    actions = [
       "dynamodb:PutItem",
       "dynamodb:GetItem"
     ]
@@ -76,7 +76,7 @@ data "aws_iam_policy_document" "trivialscan_queue_consumer_iam_policy" {
   }
   statement {
     sid = "${var.app_env}QueueConsumerDynamoDBQuery"
-    actions   = [
+    actions = [
       "dynamodb:Query"
     ]
     resources = [
@@ -93,9 +93,9 @@ resource "aws_iam_role" "trivialscan_queue_consumer_role" {
   }
 }
 resource "aws_iam_policy" "trivialscan_queue_consumer_policy" {
-  name        = "${lower(var.app_env)}_trivialscan_queue_consumer_lambda_policy"
-  path        = "/"
-  policy      = data.aws_iam_policy_document.trivialscan_queue_consumer_iam_policy.json
+  name   = "${lower(var.app_env)}_trivialscan_queue_consumer_lambda_policy"
+  path   = "/"
+  policy = data.aws_iam_policy_document.trivialscan_queue_consumer_iam_policy.json
 }
 resource "aws_iam_role_policy_attachment" "policy_attach" {
   role       = aws_iam_role.trivialscan_queue_consumer_role.name
