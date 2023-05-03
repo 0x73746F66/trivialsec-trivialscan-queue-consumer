@@ -191,6 +191,10 @@ def handler(event, context):
         account_secret = models.MemberAccount(name=record.account_name)
         if not account_secret.load():
             internals.logger.info(f"Missing account {record.account_name}")
+            services.aws.complete_sqs(
+                queue_name=f'{internals.APP_ENV.lower()}-reconnaissance',
+                receipt_handle=record.receiptHandle,
+            )
             continue
         account = models.MemberAccountRedacted(**account_secret.dict())
         report_id = token_urlsafe(32)
@@ -302,12 +306,20 @@ def handler(event, context):
             internals.logger.error(
                 f"Storing FullReport {report.report_id} {record.hostname}"
             )
+            services.aws.complete_sqs(
+                queue_name=f'{internals.APP_ENV.lower()}-reconnaissance',
+                receipt_handle=record.receiptHandle,
+            )
             continue
 
         internals.logger.info(f"SUCCESS {report.report_id} {record.hostname}")
         if not services.aws.put_dynamodb(table_name=services.aws.Tables.REPORT_HISTORY, item=report.dict()):
             internals.logger.error(
                 f"ReportSummary failed to save, this will cause duplicate scanning issues {report.report_id} {record.hostname}"
+            )
+            services.aws.complete_sqs(
+                queue_name=f'{internals.APP_ENV.lower()}-reconnaissance',
+                receipt_handle=record.receiptHandle,
             )
             continue
 
@@ -427,4 +439,9 @@ def handler(event, context):
                 ],
                 "execution_duration_seconds": execution_duration_seconds,
             },
+        )
+        # Avoids duplicate processing
+        services.aws.complete_sqs(
+            queue_name=f'{internals.APP_ENV.lower()}-reconnaissance',
+            receipt_handle=record.receiptHandle,
         )

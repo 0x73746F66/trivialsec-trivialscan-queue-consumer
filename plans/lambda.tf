@@ -48,10 +48,11 @@ resource "aws_lambda_permission" "allow_queue" {
 }
 
 resource "aws_lambda_event_source_mapping" "trivialscan_queue_consumer_source" {
-  event_source_arn = data.terraform_remote_state.trivialscan_sqs.outputs.reconnaissance_queue_arn
-  enabled          = true
-  function_name    = aws_lambda_function.trivialscan_queue_consumer.arn
-  batch_size       = local.queue_batch_size
+  event_source_arn                   = data.terraform_remote_state.trivialscan_sqs.outputs.reconnaissance_queue_arn
+  enabled                            = true
+  function_name                      = aws_lambda_function.trivialscan_queue_consumer.arn
+  batch_size                         = local.queue_batch_size
+  maximum_batching_window_in_seconds = 5
 }
 
 resource "aws_cloudwatch_log_group" "queue_consumer_logs" {
