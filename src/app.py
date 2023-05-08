@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from secrets import token_urlsafe
 from typing import Optional
 
+from lumigo_tracer import lumigo_tracer
 from pusher import Pusher
 from trivialscan import trivialscan
 from trivialscan.cli.__main__ import __version__ as trivialscan_version
@@ -176,7 +177,15 @@ def process_evaluations(data: dict, event: EventRecord, host: models.Host, repor
         evaluations.append(item)
     return evaluations
 
-def handler(event, context):
+
+def main(event):
+    if event.get("source"):
+        internals.trace_tag({
+            "source": event["source"],
+            "resources": ",".join([
+                e.split(":")[-1] for e in event["resources"]
+            ]) or "manual",
+        })
     pusher_client = Pusher(
         app_id=services.aws.get_ssm(f"/{internals.APP_ENV}/{internals.APP_NAME}/Pusher/app-id"),
         key=services.aws.get_ssm(f"/{internals.APP_ENV}/{internals.APP_NAME}/Pusher/key"),
@@ -445,3 +454,18 @@ def handler(event, context):
             queue_name=f'{internals.APP_ENV.lower()}-reconnaissance',
             receipt_handle=record.receiptHandle,
         )
+    return True
+
+
+@lumigo_tracer(
+    token=services.aws.get_ssm(f'/{internals.APP_ENV}/{internals.APP_NAME}/Lumigo/token', WithDecryption=True),
+    should_report=internals.APP_ENV == "Prod",
+    skip_collecting_http_body=True,
+    verbose=internals.APP_ENV != "Prod"
+)
+def handler(event, context):  # pylint: disable=unused-argument
+    try:
+        return main(event)
+    except Exception as err:
+        internals.always_log(err)
+    return False

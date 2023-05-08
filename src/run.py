@@ -1,3 +1,4 @@
+import contextlib
 import sys
 import json
 import logging
@@ -12,12 +13,12 @@ from rich.logging import RichHandler
 import app
 import internals
 
-AWS_ACCOUNT = getenv("AWS_ACCOUNT", "984310022655")
-AWS_REGION = getenv("AWS_REGION", "ap-southeast-2")
+AWS_ACCOUNT = getenv("AWS_ACCOUNT", default="984310022655")
+AWS_REGION = getenv("AWS_REGION", default="ap-southeast-2")
 
 def cli():
-    now = datetime.now(timezone.utc)
-    invoke_payload = Path(f".{internals.BUILD_ENV}/invoke-payload.json")
+    now = datetime.now(tz=timezone.utc)
+    invoke_payload = Path(".development/invoke-payload.json")
     event = json.loads(invoke_payload.read_text(encoding="utf8"))
     context = {
         "aws_request_id": uuid4(),
@@ -31,7 +32,6 @@ def cli():
         "identity": None,
     }
     app.handler(event, context)
-
 
 def run():
     parser = argparse.ArgumentParser()
@@ -64,26 +64,24 @@ def run():
         dest="log_level_debug",
         action="store_true",
     )
-    LOG_LEVEL = logging.INFO
+    log_level = logging.INFO
     if parser.parse_args().log_level_error:
-        LOG_LEVEL = logging.ERROR
+        log_level = logging.ERROR
     if parser.parse_args().log_level_warning:
-        LOG_LEVEL = logging.WARNING
+        log_level = logging.WARNING
     if parser.parse_args().log_level_info:
-        LOG_LEVEL = logging.INFO
+        log_level = logging.INFO
     if parser.parse_args().log_level_debug:
-        LOG_LEVEL = logging.DEBUG
-    LOG_FORMAT = "%(asctime)s - %(name)s - [%(levelname)s] %(message)s"
+        log_level = logging.DEBUG
     if sys.stdout.isatty():
-        LOG_FORMAT = "%(message)s"
         logging.basicConfig(
-            format=LOG_FORMAT,
-            level=LOG_LEVEL,
-            handlers=[RichHandler(rich_tracebacks=True)],
+            format="%(message)s",
+            level=log_level,
+            handlers=[RichHandler(rich_tracebacks=True, markup=True)],
         )
-    internals.logger.setLevel(LOG_LEVEL)
-    cli()
-
+    internals.logger.setLevel(log_level)
+    with contextlib.suppress(KeyboardInterrupt):
+        cli()
 
 if __name__ == "__main__":
     run()
